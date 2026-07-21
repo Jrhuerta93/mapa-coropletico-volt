@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import json
+import requests
 
 st.set_page_config(page_title="Volt Mínimo por Estado", layout="wide")
 st.title("🗺️ Mapa Coroplético: Volt Mínimo por Estado")
@@ -15,7 +15,7 @@ def cargar_datos():
             df['VOLT'] = pd.to_numeric(df['VOLT'], errors='coerce').fillna(0.0)
         return df
     except Exception as e:
-        st.error(f"Error al cargar datos: {e}")
+        st.error(f"❌ Error al cargar datos: {e}")
         return pd.DataFrame()
 
 df = cargar_datos()
@@ -28,6 +28,7 @@ df_estado = df.groupby('ESTADO').agg(
     Tiendas=('Folio Emetrix', 'count')
 ).reset_index()
 
+# Mapeo de estados
 mapeo_estados = {
     'BAJA CALIFORNIA SUR': 'Baja California Sur',
     'CDMX': 'Ciudad de México',
@@ -54,37 +55,45 @@ mapeo_estados = {
 
 df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 
-# 🔑 CARGAR GEOJSON LOCAL (¡NO MÁS URLS!)
+# ✅ USAR TU PROPIO GEOJSON (CORREGIDO)
+geojson_url = "https://raw.githubusercontent.com/Jrhuerta93/mexico.json/main/mexico.json"
+
 try:
-    with open('mexico.json', 'r', encoding='utf-8') as f:
-        geojson_data = json.load(f)
-    st.success("✅ GeoJSON cargado localmente")
+    response = requests.get(geojson_url)
+    response.raise_for_status()
+    geojson_data = response.json()
+    
+    fig = px.choropleth(
+        df_estado,
+        geojson=geojson_data,
+        locations='Estado_Mapa',
+        color='Volt_minimo',
+        featureidkey="properties.name",
+        color_continuous_scale="Blues",
+        labels={'Volt_minimo': 'Volt Mínimo ($)'},
+        hover_data={
+            'Volt_minimo': ':$.2f',
+            'Tiendas': True
+        }
+    )
+    
+    fig.update_geos(fitbounds="locations", visible=False)
+    fig.update_layout(
+        margin={"r":0,"t":50,"l":0,"b":0},
+        title_text="Distribución de Precio Volt Mínimo por Estado"
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    st.success("✅ Mapa generado correctamente")
+    
 except Exception as e:
-    st.error(f"❌ Error al cargar mexico.json: {e}")
-    st.stop()
-
-# Crear mapa
-fig = px.choropleth(
-    df_estado,
-    geojson=geojson_data,
-    locations='Estado_Mapa',
-    color='Volt_minimo',
-    featureidkey="properties.name",
-    color_continuous_scale="Blues",
-    labels={'Volt_minimo': 'Volt Mínimo ($)'},
-    hover_data={
-        'Volt_minimo': ':$.2f',
-        'Tiendas': True
-    }
-)
-
-fig.update_geos(fitbounds="locations", visible=False)
-fig.update_layout(
-    margin={"r":0,"t":50,"l":0,"b":0},
-    title_text="Distribución de Precio Volt Mínimo por Estado"
-)
-
-st.plotly_chart(fig, use_container_width=True)
+    st.error(f"❌ Error al cargar mapa: {e}")
+    st.info("💡 Verifica estos pasos:")
+    st.markdown("""
+    1. **Asegúrate de que `mexico.json` esté en tu repo**
+    2. **URL correcta:** `https://raw.githubusercontent.com/Jrhuerta93/mexico.json/main/mexico.json`
+    3. **Permisos públicos:** El repo debe ser público
+    """)
 
 # Tabla de datos
 st.subheader("📊 Resumen por Estado")
