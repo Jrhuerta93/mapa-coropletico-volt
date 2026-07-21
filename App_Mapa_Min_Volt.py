@@ -16,9 +16,9 @@ st.markdown("Visualización de la diferencia de precios mínimos por entidad fed
 def cargar_datos():
     try:
         # Ajusta el nombre si tu archivo se llama diferente
-        df = pd.read_csv("Datos_Mapa.csv", encoding='latin1')
+        df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
     except FileNotFoundError:
-        st.error("❌ No se encontró 'Datos_Mapa.csv'.")
+        st.error("❌ No se encontró 'datos_tiendas.csv'.")
         return pd.DataFrame()
 
     df.columns = df.columns.str.strip()
