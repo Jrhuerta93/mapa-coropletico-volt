@@ -54,28 +54,55 @@ mapeo_estados = {
 
 df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 
-# Cargar GeoJSON ligero desde URL
+# URL CONFIABLE de GeoJSON de México (baja resolución, ~200KB)
+geojson_url = "https://raw.githubusercontent.com/angelnmarrero/mexico_geojson/master/mexico_states.json"
+
 try:
-    geojson_url = "https://raw.githubusercontent.com/codeforamerica/mexico-json/master/mexico-states.json"
     response = requests.get(geojson_url)
-    geojson_data = response.json()
+    if response.status_code == 200:
+        geojson_data = response.json()
+        
+        fig = px.choropleth(
+            df_estado,
+            geojson=geojson_data,
+            locations='Estado_Mapa',
+            color='Volt_minimo',
+            featureidkey="properties.name",
+            color_continuous_scale="Blues",
+            labels={'Volt_minimo': 'Volt Mínimo ($)'},
+            hover_data={'Volt_minimo': ':$.2f', 'Tiendas': True}
+        )
+        
+        fig.update_geos(fitbounds="locations", visible=False)
+        fig.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
+        
+        st.plotly_chart(fig, use_container_width=True)
+        st.success("✅ Mapa generado correctamente")
+    else:
+        st.error(f" Error al descargar GeoJSON: {response.status_code}")
+        
+except Exception as e:
+    st.error(f"❌ Error: {e}")
+    st.info("💡 Intentando con método alternativo...")
     
+    # Método alternativo: usar el built-in de Plotly
     fig = px.choropleth(
         df_estado,
-        geojson=geojson_data,
         locations='Estado_Mapa',
         color='Volt_minimo',
-        featureidkey="properties.name",
+        locationmode="country names",
         color_continuous_scale="Blues",
+        scope="north america",
         labels={'Volt_minimo': 'Volt Mínimo ($)'},
         hover_data={'Volt_minimo': ':$.2f', 'Tiendas': True}
     )
     
-    fig.update_geos(fitbounds="locations", visible=False)
-    fig.update_layout(margin={"r":0,"t":50,"l":0,"b":0})
+    fig.update_layout(
+        geo_scope='north america',
+        geo=dict(
+            center=dict(lat=23.6345, lon=-102.5528),
+            projection_scale=4
+        )
+    )
     
     st.plotly_chart(fig, use_container_width=True)
-    st.success("✅ Mapa generado correctamente")
-    
-except Exception as e:
-    st.error(f" Error al cargar mapa: {e}")
