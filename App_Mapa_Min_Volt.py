@@ -34,9 +34,6 @@ st.markdown("""
         border-radius: 10px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .tab-content {
-        padding: 20px 0;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -211,7 +208,7 @@ st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
 tab1, tab2 = st.tabs(["📍 Mapa de Precios", "🔗 Trazabilidad de Clientes"])
 
 # ============================================
-# TAB 1: MAPA DE PRECIOS (VERSIÓN QUE FUNCIONA)
+# TAB 1: MAPA DE PRECIOS
 # ============================================
 with tab1:
     # --- IDENTIFICAR PRECIO MÍNIMO POR ESTADO ---
@@ -299,8 +296,13 @@ with tab1:
         lambda x: get_text_color(x, precio_minimo_global, precio_maximo_global)
     )
     
+    # ============================================
+    # TEXTO MÁS PEQUEÑO PARA EVITAR ENCIMAMIENTO
+    # ============================================
+    TAMANO_TEXTO = 9  # Reducido de 11 a 9 para evitar encimamiento
+    
     df_estado['Texto_Mapa'] = df_estado.apply(
-        lambda row: f"${row['Volt_minimo']:,.2f}" + (" 🔴" if row['Es_Critico'] else ""),
+        lambda row: f"${row['Volt_minimo']:,.0f}" + ("🔴" if row['Es_Critico'] else ""),  # Sin decimales y más compacto
         axis=1
     )
     
@@ -409,6 +411,7 @@ with tab1:
         df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[1])
         df_con_coords = df_estado.dropna(subset=['lon', 'lat']).drop_duplicates(subset=['Estado_Mapa'])
         
+        # Agregar etiquetas con texto más pequeño
         for _, row in df_con_coords.iterrows():
             fig.add_trace(go.Scattergeo(
                 lon=[row['lon']],
@@ -416,7 +419,7 @@ with tab1:
                 mode='text',
                 text=[row['Texto_Mapa']],
                 textfont=dict(
-                    size=11,
+                    size=TAMANO_TEXTO,  # Tamaño reducido
                     color=row['Color_Texto'],
                     family='Arial, sans-serif',
                     weight='bold'
@@ -433,11 +436,11 @@ with tab1:
                 lat=df_criticos['lat'],
                 mode='markers',
                 marker=dict(
-                    size=25,
+                    size=20,  # Reducido de 25 a 20
                     color='red',
                     symbol='circle',
-                    opacity=0.2,
-                    line=dict(width=2, color='darkred')
+                    opacity=0.15,  # Reducido de 0.2 a 0.15
+                    line=dict(width=1.5, color='darkred')  # Reducido de 2 a 1.5
                 ),
                 hoverinfo='skip',
                 showlegend=False
@@ -524,7 +527,7 @@ with tab1:
             y=df_bar['Precio Numérico'],
             text=df_bar['Grupo con mejor precio'],
             textposition='outside',
-            textfont=dict(size=10),
+            textfont=dict(size=9),  # Texto más pequeño
             marker_color=bar_colors,
             marker_line_color='white',
             marker_line_width=1.5,
@@ -537,15 +540,17 @@ with tab1:
         fig_bar.update_layout(
             title="Precios Mínimos por Estado - De mejor a peor oferta",
             xaxis_tickangle=-45,
-            yaxis_title="Precio Mínimo ($)",
-            xaxis_title="Estado",
+            yaxis_title="",
+            xaxis_title="",
             showlegend=False,
             plot_bgcolor='white',
             paper_bgcolor='white',
-            font=dict(family="Arial", size=12, color="#2c3e50"),
-            title_font=dict(size=16, color="#1a1a2e"),
-            height=500,
-            margin=dict(l=50, r=50, t=80, b=100)
+            font=dict(family="Arial", size=11, color="#2c3e50"),
+            title_font=dict(size=15, color="#1a1a2e"),
+            height=450,
+            margin=dict(l=40, r=40, t=60, b=80),
+            xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=10)),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=True, tickprefix="$", tickfont=dict(size=10))
         )
         
         st.plotly_chart(fig_bar, use_container_width=True)
@@ -608,7 +613,8 @@ with tab2:
     mostrar_lineas = st.sidebar.checkbox("📊 Mostrar líneas de conexión", value=True)
     
     # --- CALCULAR DATOS DE TRAZABILIDAD ---
-    df_conexiones = calcular_distancias_manual(df_filtrado)
+    with st.spinner("Calculando distancias entre clientes..."):
+        df_conexiones = calcular_distancias_manual(df_filtrado)
     
     if df_conexiones is None or df_conexiones.empty:
         st.warning("⚠️ No hay suficientes datos con coordenadas para calcular distancias")
@@ -640,10 +646,14 @@ with tab2:
     
     st.markdown("---")
     
-    # --- MAPA DE TRAZABILIDAD USANDO PLOTLY EXPRESS ---
+    # --- MAPA DE TRAZABILIDAD ---
     st.subheader("📍 Mapa de Conexiones entre Clientes")
     
     df_clientes = df_filtrado.dropna(subset=['Longitud', 'Latitud'])
+    
+    if df_clientes.empty:
+        st.warning("⚠️ No hay clientes con coordenadas válidas")
+        st.stop()
     
     # Crear columna de color según precio
     df_clientes['Categoria_Precio'] = df_clientes['VOLT'].apply(
@@ -663,7 +673,7 @@ with tab2:
             'Medio': '#FFD700',
             'Alto': '#FF6B6B'
         },
-        size=[10] * len(df_clientes),
+        size=[8] * len(df_clientes),  # Puntos más pequeños
         hover_data={
             'CIUDAD': True,
             'GRUPO': True,
@@ -688,17 +698,17 @@ with tab2:
         for _, row in conexiones_unicas.iterrows():
             diff_precio = row['precio_origen'] - row['precio_destino']
             if diff_precio > 5:
-                color_linea = 'rgba(46, 204, 64, 0.6)'
+                color_linea = 'rgba(46, 204, 64, 0.5)'
             elif diff_precio < -5:
-                color_linea = 'rgba(255, 107, 107, 0.6)'
+                color_linea = 'rgba(255, 107, 107, 0.5)'
             else:
-                color_linea = 'rgba(52, 152, 219, 0.4)'
+                color_linea = 'rgba(52, 152, 219, 0.3)'
             
             fig_trazabilidad.add_trace(go.Scattermapbox(
                 lon=[row['longitud_origen'], row['longitud_destino']],
                 lat=[row['latitud_origen'], row['latitud_destino']],
                 mode='lines',
-                line=dict(width=2, color=color_linea),
+                line=dict(width=1.5, color=color_linea),  # Líneas más delgadas
                 hoverinfo='text',
                 text=f"🔗 Conexión<br>📏 Distancia: {row['distancia_km']:.2f} km<br>🏢 {row['cliente_origen']} → {row['cliente_destino']}<br>💰 ${row['precio_origen']:.2f} → ${row['precio_destino']:.2f}<br>💱 Diferencia: ${row['precio_origen'] - row['precio_destino']:.2f}",
                 showlegend=False
@@ -751,15 +761,3 @@ with tab2:
         return [''] * len(row)
     
     styled_conexiones = df_tabla_conexiones.style.apply(color_conexiones, axis=1)
-    st.dataframe(styled_conexiones, use_container_width=True, hide_index=True)
-    
-    # --- CLIENTES SIN CONEXIÓN ---
-    with st.expander("🔍 Clientes sin conexión (aislados)"):
-        folios_con_conexion = set(df_conexiones['folio_origen']).union(set(df_conexiones['folio_destino']))
-        df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con_conexion)]
-        df_aislados = df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']].copy()
-        df_aislados.columns = ['Grupo', 'Ciudad', 'Estado', 'Precio']
-        df_aislados['Precio'] = df_aislados['Precio'].apply(lambda x: f"${x:,.2f}")
-        
-        if not df_aislados.empty:
-            st.warning
