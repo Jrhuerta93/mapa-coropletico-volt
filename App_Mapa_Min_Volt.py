@@ -46,11 +46,17 @@ df = cargar_datos()
 if df.empty:
     st.stop()
 
-# Procesar datos
-df_estado = df.groupby('ESTADO').agg(
-    Volt_minimo=('VOLT', 'min'),
-    Tiendas=('Folio Emetrix', 'count')
-).reset_index()
+# --- IDENTIFICAR LA TIENDA CON PRECIO MÍNIMO POR ESTADO ---
+# Primero, encontrar el precio mínimo por estado
+df_estado_min = df.loc[df.groupby('ESTADO')['VOLT'].idxmin()]
+
+# Crear dataframe con los datos relevantes
+df_estado = df_estado_min[['ESTADO', 'VOLT', 'Folio Emetrix']].copy()
+df_estado.columns = ['ESTADO', 'Volt_minimo', 'Cliente']
+
+# Contar tiendas por estado para mostrar en hover
+tiendas_por_estado = df.groupby('ESTADO').size().reset_index(name='Total_Tiendas')
+df_estado = df_estado.merge(tiendas_por_estado, on='ESTADO', how='left')
 
 # Mapeo de estados (incluye variaciones con tildes)
 mapeo_estados = {
@@ -104,6 +110,12 @@ df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 # Crear columna para formato de moneda en hover
 df_estado['Volt_minimo_formato'] = df_estado['Volt_minimo'].apply(lambda x: f"${x:,.2f}")
 
+# Crear texto para mostrar en el mapa (para usar con texttemplate)
+df_estado['Texto_Mapa'] = df_estado.apply(
+    lambda row: f"<b>{row['Estado_Mapa']}</b><br>{row['Cliente']}<br>${row['Volt_minimo']:,.2f}", 
+    axis=1
+)
+
 # Cargar GeoJSON
 geojson_data = cargar_geojson()
 if geojson_data is None:
@@ -121,7 +133,7 @@ try:
 except Exception as e:
     st.warning(f"⚠️ No se pudieron verificar los nombres de estados: {e}")
 
-# --- Mapa mejorado con visualización de precios ---
+# --- MAPA CON NOMBRE DE CLIENTE Y PRECIO ---
 st.subheader("📍 Mapa de Precios Mínimos por Estado")
 
 # Crear mapa con mejor visualización
@@ -136,20 +148,32 @@ fig = px.choropleth(
     labels={'Volt_minimo': 'Precio Mínimo ($)'},
     hover_data={
         'Estado_Mapa': True,
+        'Cliente': True,
         'Volt_minimo': True,
         'Volt_minimo_formato': True,
-        'Tiendas': True
+        'Total_Tiendas': True
     },
     template='plotly_white'
 )
 
-# Personalizar hover
+# Personalizar hover con información completa
 fig.update_traces(
     hovertemplate="<b>%{customdata[0]}</b><br>" +
-                  "Precio Mínimo: <b>$%{customdata[1]:,.2f}</b><br>" +
-                  "Tiendas: %{customdata[3]}<br>" +
+                  "🏪 Cliente: <b>%{customdata[1]}</b><br>" +
+                  "💰 Precio Mínimo: <b>$%{customdata[2]:,.2f}</b><br>" +
+                  "📊 Total Tiendas: %{customdata[4]}<br>" +
                   "<extra></extra>",
-    customdata=df_estado[['Estado_Mapa', 'Volt_minimo', 'Volt_minimo_formato', 'Tiendas']].values
+    customdata=df_estado[['Estado_Mapa', 'Cliente', 'Volt_minimo', 'Volt_minimo_formato', 'Total_Tiendas']].values,
+    # Agregar etiquetas en el mapa con el nombre del cliente y precio
+    text=df_estado['Texto_Mapa'],
+    texttemplate='%{text}',
+    textposition='middle center',
+    textfont=dict(
+        size=9,
+        color='black',
+        family='Arial, sans-serif'
+    ),
+    textangle=0
 )
 
 # Ajustar geografía
@@ -165,25 +189,31 @@ fig.update_geos(
 # Mejorar layout
 fig.update_layout(
     margin={"r":0, "t":30, "l":0, "b":0},
-    height=650,
+    height=700,
     coloraxis_colorbar=dict(
         title="Precio Mínimo ($)",
         tickprefix="$",
         tickformat=",.0f",
-        thickness=20,
-        len=0.8
+        thickness=25,
+        len=0.8,
+        x=1.02
     ),
     hoverlabel=dict(
         bgcolor="white",
-        font_size=14,
+        font_size=13,
         font_family="Arial"
+    ),
+    geo=dict(
+        showframe=False,
+        showcoastlines=True,
+        projection_type='mercator'
     )
 )
 
 # Mostrar el mapa
 st.plotly_chart(fig, use_container_width=True)
 
-# --- Sección de análisis y estadísticas ---
+# --- SECCIÓN DE ANÁLISIS ---
 st.subheader("📊 Análisis de Precios Mínimos")
 
 # Métricas principales
@@ -191,12 +221,14 @@ col1, col2, col3, col4 = st.columns(4)
 with col1:
     precio_min = df_estado['Volt_minimo'].min()
     estado_min = df_estado[df_estado['Volt_minimo'] == precio_min]['Estado_Mapa'].iloc[0]
-    st.metric("💰 Precio más bajo", f"${precio_min:,.2f}", estado_min)
+    cliente_min = df_estado[df_estado['Volt_minimo'] == precio_min]['Cliente'].iloc[0]
+    st.metric("💰 Precio más bajo", f"${precio_min:,.2f}", f"{estado_min} - {cliente_min}")
     
 with col2:
     precio_max = df_estado['Volt_minimo'].max()
     estado_max = df_estado[df_estado['Volt_minimo'] == precio_max]['Estado_Mapa'].iloc[0]
-    st.metric("💸 Precio más alto", f"${precio_max:,.2f}", estado_max)
+    cliente_max = df_estado[df_estado['Volt_minimo'] == precio_max]['Cliente'].iloc[0]
+    st.metric("💸 Precio más alto", f"${precio_max:,.2f}", f"{estado_max} - {cliente_max}")
     
 with col3:
     precio_prom = df_estado['Volt_minimo'].mean()
@@ -205,12 +237,12 @@ with col3:
 with col4:
     st.metric("🏪 Estados con datos", len(df_estado))
 
-# Tabla de datos con formato mejorado
-st.subheader("📋 Tabla de Precios por Estado")
+# --- TABLA CON CLIENTE Y PRECIO ---
+st.subheader("📋 Tabla de Precios Mínimos por Estado")
 
-# Crear tabla con colores
-df_tabla = df_estado[['Estado_Mapa', 'Volt_minimo', 'Tiendas']].copy()
-df_tabla.columns = ['Estado', 'Precio Mínimo', 'Tiendas']
+# Crear tabla con formato mejorado
+df_tabla = df_estado[['Estado_Mapa', 'Cliente', 'Volt_minimo', 'Total_Tiendas']].copy()
+df_tabla.columns = ['Estado', 'Cliente con precio mínimo', 'Precio Mínimo', 'Total Tiendas']
 df_tabla = df_tabla.sort_values(by='Precio Mínimo', ascending=True)
 
 # Formatear precios
@@ -230,9 +262,10 @@ styled_df = df_tabla.style.apply(resaltar_precios, axis=1)
 
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-# --- Gráfico de barras adicional ---
-st.subheader("📈 Distribución de Precios Mínimos")
+# --- GRÁFICO DE BARRAS ---
+st.subheader("📈 Distribución de Precios Mínimos por Estado")
 
+# Crear gráfico de barras con información del cliente
 fig_bar = px.bar(
     df_tabla.sort_values(by='Precio Mínimo', ascending=False),
     x='Estado',
@@ -240,30 +273,60 @@ fig_bar = px.bar(
     color='Precio Mínimo',
     color_continuous_scale='RdYlGn_r',
     title="Precios Mínimos por Estado (Ordenados de Mayor a Menor)",
-    labels={'y': 'Precio Mínimo ($)'}
+    labels={'y': 'Precio Mínimo ($)', 'x': 'Estado'},
+    text=df_tabla['Cliente con precio mínimo']
+)
+
+fig_bar.update_traces(
+    textposition='outside',
+    textfont=dict(size=9)
 )
 
 fig_bar.update_layout(
     xaxis_tickangle=-45,
-    height=400,
-    showlegend=False
+    height=500,
+    showlegend=False,
+    uniformtext_minsize=8,
+    uniformtext_mode='hide'
 )
 
 st.plotly_chart(fig_bar, use_container_width=True)
 
-# --- Exportar datos ---
+# --- TABLA CON TODAS LAS TIENDAS POR ESTADO (OPCIONAL) ---
+with st.expander("🔍 Ver todas las tiendas por estado"):
+    # Mostrar todas las tiendas con sus precios
+    df_todas_tiendas = df[['ESTADO', 'Folio Emetrix', 'VOLT']].copy()
+    df_todas_tiendas.columns = ['Estado', 'Cliente', 'Precio']
+    df_todas_tiendas['Estado_Mapa'] = df_todas_tiendas['Estado'].map(mapeo_estados)
+    df_todas_tiendas = df_todas_tiendas[['Estado_Mapa', 'Cliente', 'Precio']]
+    df_todas_tiendas = df_todas_tiendas.sort_values(['Estado_Mapa', 'Precio'])
+    df_todas_tiendas['Precio'] = df_todas_tiendas['Precio'].apply(lambda x: f"${x:,.2f}")
+    
+    st.dataframe(df_todas_tiendas, use_container_width=True, hide_index=True)
+
+# --- EXPORTAR DATOS ---
 st.subheader("📥 Descargar Datos")
 
-# Botón para descargar CSV
-csv = df_tabla.to_csv(index=False)
+# Botón para descargar CSV de precios mínimos
+csv_min = df_tabla.to_csv(index=False)
 st.download_button(
-    label="📥 Descargar datos como CSV",
-    data=csv,
-    file_name="precios_volt_por_estado.csv",
+    label="📥 Descargar precios mínimos (CSV)",
+    data=csv_min,
+    file_name="precios_minimos_por_estado.csv",
     mime="text/csv"
 )
 
-# Mostrar estados sin datos (si hay)
+# Botón para descargar todas las tiendas
+csv_all = df_todas_tiendas.to_csv(index=False) if 'df_todas_tiendas' in locals() else ""
+if csv_all:
+    st.download_button(
+        label="📥 Descargar todas las tiendas (CSV)",
+        data=csv_all,
+        file_name="todas_las_tiendas_por_estado.csv",
+        mime="text/csv"
+    )
+
+# Mostrar estados sin datos
 estados_sin_datos = set(nombres_geojson) - set(df_estado['Estado_Mapa'].dropna())
 if estados_sin_datos:
     st.info(f"ℹ️ Estados sin datos en el mapa: {', '.join(sorted(estados_sin_datos))}")
