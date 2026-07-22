@@ -151,7 +151,8 @@ fig = px.choropleth(
         'Cliente': True,
         'Volt_minimo': True,
         'Volt_minimo_formato': True,
-        'Total_Tiendas': True
+        'Total_Tiendas': True,
+        'Texto_Mapa': False
     },
     template='plotly_white'
 )
@@ -163,17 +164,7 @@ fig.update_traces(
                   "💰 Precio Mínimo: <b>$%{customdata[2]:,.2f}</b><br>" +
                   "📊 Total Tiendas: %{customdata[4]}<br>" +
                   "<extra></extra>",
-    customdata=df_estado[['Estado_Mapa', 'Cliente', 'Volt_minimo', 'Volt_minimo_formato', 'Total_Tiendas']].values,
-    # Agregar etiquetas en el mapa con el nombre del cliente y precio
-    text=df_estado['Texto_Mapa'],
-    texttemplate='%{text}',
-    textposition='middle center',
-    textfont=dict(
-        size=9,
-        color='black',
-        family='Arial, sans-serif'
-    ),
-    textangle=0
+    customdata=df_estado[['Estado_Mapa', 'Cliente', 'Volt_minimo', 'Volt_minimo_formato', 'Total_Tiendas']].values
 )
 
 # Ajustar geografía
@@ -210,8 +201,64 @@ fig.update_layout(
     )
 )
 
+# Agregar anotaciones personalizadas (texto en el mapa)
+# Nota: Plotly choropleth no soporta texto directamente en el mapa,
+# así que usamos una capa de scatter para mostrar las etiquetas
+
+# Crear un scatter plot con las etiquetas
+# Primero obtenemos las coordenadas de los centroides de los estados
+from shapely.geometry import shape
+from shapely.ops import centroid
+
+def get_centroid(feature):
+    """Obtener el centroide de un polígono"""
+    geom = shape(feature['geometry'])
+    return centroid(geom)
+
+# Crear diccionario de centroides
+centroides = {}
+for feature in geojson_data['features']:
+    name = feature['properties']['name']
+    cent = get_centroid(feature)
+    centroides[name] = (cent.x, cent.y)
+
+# Añadir coordenadas al dataframe
+df_estado['lon'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[0])
+df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[1])
+
+# Crear scatter plot para etiquetas
+fig_scatter = px.scatter_mapbox(
+    df_estado.dropna(subset=['lon', 'lat']),
+    lat='lat',
+    lon='lon',
+    text='Texto_Mapa',
+    hover_name='Estado_Mapa',
+    hover_data={'Cliente': True, 'Volt_minimo': True},
+    color_discrete_sequence=['black'],
+    zoom=4,
+    height=700
+)
+
+# Actualizar el layout del scatter
+fig_scatter.update_traces(
+    textposition='middle center',
+    textfont=dict(size=10, color='black', family='Arial, sans-serif'),
+    marker=dict(size=0),  # Ocultar marcadores
+    showlegend=False
+)
+
+fig_scatter.update_layout(
+    mapbox=dict(
+        style="carto-positron",
+        center=dict(lat=23.6345, lon=-102.5528),
+        zoom=4
+    ),
+    margin={"r":0, "t":0, "l":0, "b":0},
+    height=700
+)
+
 # Mostrar el mapa
-st.plotly_chart(fig, use_container_width=True)
+st.plotly_chart(fig_scatter, use_container_width=True)
 
 # --- SECCIÓN DE ANÁLISIS ---
 st.subheader("📊 Análisis de Precios Mínimos")
@@ -317,8 +364,8 @@ st.download_button(
 )
 
 # Botón para descargar todas las tiendas
-csv_all = df_todas_tiendas.to_csv(index=False) if 'df_todas_tiendas' in locals() else ""
-if csv_all:
+if 'df_todas_tiendas' in locals():
+    csv_all = df_todas_tiendas.to_csv(index=False)
     st.download_button(
         label="📥 Descargar todas las tiendas (CSV)",
         data=csv_all,
