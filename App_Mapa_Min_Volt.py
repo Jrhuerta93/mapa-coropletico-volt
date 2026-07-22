@@ -3,158 +3,106 @@ import pandas as pd
 import plotly.express as px
 import json
 
-# ==================== CONFIGURACIÓN ====================
-st.set_page_config(page_title="Mapa Volt Mínimo", layout="wide")
-st.title("🗺️ Distribución de Precio Volt Mínimo por Estado")
+st.set_page_config(page_title="Volt Mínimo por Estado", layout="wide")
+st.title("🗺️ Mapa Coroplético: Volt Mínimo por Estado")
 
-# ==================== CARGA DE DATOS ====================
 @st.cache_data
 def cargar_datos():
-    df = pd.read_csv("datos_tiendas.csv")
-    return df
+    try:
+        # 🔑 IMPORTANTE: encoding='latin1' para caracteres especiales (tildes, ñ)
+        df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
+        df.columns = df.columns.str.strip()
+        if 'VOLT' in df.columns:
+            df['VOLT'] = pd.to_numeric(df['VOLT'], errors='coerce').fillna(0.0)
+        return df
+    except Exception as e:
+        st.error(f"❌ Error al cargar datos: {e}")
+        return pd.DataFrame()
 
 df = cargar_datos()
+if df.empty:
+    st.stop()
 
-# ==================== PROCESAMIENTO ====================
-# Calcular Volt mínimo por estado
-volt_min_por_estado = df.groupby("Estado")["Volt"].min().reset_index()
-volt_min_por_estado.columns = ["Estado", "Volt_Minimo"]
+# Procesar datos
+df_estado = df.groupby('ESTADO').agg(
+    Volt_minimo=('VOLT', 'min'),
+    Tiendas=('Folio Emetrix', 'count')
+).reset_index()
 
-# Contar tiendas por estado
-tiendas_por_estado = df.groupby("Estado").size().reset_index(name="Num_Tiendas")
-
-# Unir datos
-datos_mapa = volt_min_por_estado.merge(tiendas_por_estado, on="Estado")
-
-# ==================== MAPEO DE NOMBRES ====================
-# Mapeo de nombres para que coincidan con el GeoJSON
+# Mapeo de estados (incluye variaciones con tildes)
 mapeo_estados = {
-    "Aguascalientes": "Aguascalientes",
-    "Baja California": "Baja California",
-    "Baja California Sur": "Baja California Sur",
-    "Campeche": "Campeche",
-    "Chiapas": "Chiapas",
-    "Chihuahua": "Chihuahua",
-    "CDMX": "Ciudad de México",
-    "Ciudad de México": "Ciudad de México",
-    "Coahuila": "Coahuila",
-    "Colima": "Colima",
-    "Durango": "Durango",
-    "Estado de México": "México",
-    "México": "México",
-    "Guanajuato": "Guanajuato",
-    "Guerrero": "Guerrero",
-    "Hidalgo": "Hidalgo",
-    "Jalisco": "Jalisco",
-    "Michoacán": "Michoacán",
-    "Morelos": "Morelos",
-    "Nayarit": "Nayarit",
-    "Nuevo León": "Nuevo León",
-    "Oaxaca": "Oaxaca",
-    "Puebla": "Puebla",
-    "Querétaro": "Querétaro",
-    "Quintana Roo": "Quintana Roo",
-    "San Luis Potosí": "San Luis Potosí",
-    "Sinaloa": "Sinaloa",
-    "Sonora": "Sonora",
-    "Tabasco": "Tabasco",
-    "Tamaulipas": "Tamaulipas",
-    "Tlaxcala": "Tlaxcala",
-    "Veracruz": "Veracruz",
-    "Yucatán": "Yucatán",
-    "Zacatecas": "Zacatecas"
+    'BAJA CALIFORNIA SUR': 'Baja California Sur',
+    'CDMX': 'Ciudad de México',
+    'CIUDAD DE MEXICO': 'Ciudad de México',
+    'CIUDAD DE MÉXICO': 'Ciudad de México',
+    'CHIAPAS': 'Chiapas',
+    'CHIHUAHUA': 'Chihuahua',
+    'EDO MEX': 'México',
+    'ESTADO DE MEXICO': 'México',
+    'ESTADO DE MÉXICO': 'México',
+    'GUANAJUATO': 'Guanajuato',
+    'HIDALGO': 'Hidalgo',
+    'JALISCO': 'Jalisco',
+    'MICHOACAN': 'Michoacán',
+    'MICHOACÁN': 'Michoacán',
+    'MORELOS': 'Morelos',
+    'NUEVO LEON': 'Nuevo León',
+    'NUEVO LEÓN': 'Nuevo León',
+    'OAXACA': 'Oaxaca',
+    'PUEBLA': 'Puebla',
+    'QUERETARO': 'Querétaro',
+    'QUERÉTARO': 'Querétaro',
+    'SAN LUIS POTOSI': 'San Luis Potosí',
+    'SAN LUIS POTOSÍ': 'San Luis Potosí',
+    'SONORA': 'Sonora',
+    'TABASCO': 'Tabasco',
+    'TLAXCALA': 'Tlaxcala',
+    'TOLUCA': 'México',
+    'VALLE DE MEXICO': 'México',
+    'VALLE DE MÉXICO': 'México',
+    'VERACRUZ': 'Veracruz',
+    'VERACRUZ DE IGNACIO DE LA LLAVE': 'Veracruz'
 }
 
-# Aplicar mapeo
-datos_mapa["Estado_Normalizado"] = datos_mapa["Estado"].map(mapeo_estados)
+df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 
-# Eliminar estados no mapeados
-datos_mapa_limpio = datos_mapa.dropna(subset=["Estado_Normalizado"])
+# Cargar GeoJSON local
+try:
+    with open('mexico.json', 'r', encoding='utf-8') as f:
+        geojson_data = json.load(f)
+    st.success(f"✅ GeoJSON cargado correctamente")
+except Exception as e:
+    st.error(f"❌ Error al cargar mexico.json: {e}")
+    st.stop()
 
-# ==================== CARGAR GEOJSON LOCAL ====================
-@st.cache_data
-def cargar_geojson():
-    try:
-        with open("mexico.json", "r", encoding="utf-8") as f:
-            geojson = json.load(f)
-        return geojson
-    except FileNotFoundError:
-        st.error("❌ No se encontró el archivo mexico.json")
-        return None
-    except json.JSONDecodeError:
-        st.error("❌ El archivo mexico.json no es un JSON válido")
-        return None
+# Crear mapa
+fig = px.choropleth(
+    df_estado,
+    geojson=geojson_data,
+    locations='Estado_Mapa',
+    color='Volt_minimo',
+    featureidkey="properties.name",
+    color_continuous_scale="Blues",
+    labels={'Volt_minimo': 'Volt Mínimo ($)'},
+    hover_data={
+        'Volt_minimo': ':$.2f',
+        'Tiendas': True
+    }
+)
 
-geojson = cargar_geojson()
+fig.update_geos(fitbounds="locations", visible=False)
+fig.update_layout(
+    margin={"r":0,"t":50,"l":0,"b":0},
+    title_text="Distribución de Precio Volt Mínimo por Estado"
+)
 
-# ==================== CREAR MAPA ====================
-if geojson is not None and not datos_mapa_limpio.empty:
-    fig = px.choropleth(
-        datos_mapa_limpio,
-        geojson=geojson,
-        locations="Estado_Normalizado",
-        featureidkey="properties.name",
-        color="Volt_Minimo",
-        hover_data={
-            "Estado_Normalizado": True,
-            "Volt_Minimo": ":.2f",
-            "Num_Tiendas": True,
-            "Estado": False  # Ocultar columna original
-        },
-        labels={
-            "Volt_Minimo": "Precio Mínimo (Volt)",
-            "Num_Tiendas": "Número de Tiendas",
-            "Estado_Normalizado": "Estado"
-        },
-        color_continuous_scale="Blues",
-        title="Distribución de Volt Mínimo por Estado",
-        height=700
-    )
+st.plotly_chart(fig, use_container_width=True)
 
-    fig.update_geos(
-        fitbounds="locations",
-        visible=False
-    )
+# Tabla de datos
+st.subheader("📊 Resumen por Estado")
+df_tabla = df_estado[['Estado_Mapa', 'Volt_minimo', 'Tiendas']].copy()
+df_tabla.columns = ['Estado', 'Volt Mínimo', 'Tiendas']
+df_tabla = df_tabla.sort_values(by='Volt Mínimo', ascending=True)
+df_tabla['Volt Mínimo'] = df_tabla['Volt Mínimo'].apply(lambda x: f"${x:,.2f}")
 
-    fig.update_layout(
-        margin={"r": 0, "t": 30, "l": 0, "b": 0},
-        coloraxis_colorbar={
-            "title": "Volt Mínimo",
-            "tickprefix": "$",
-            "ticksuffix": " MXN"
-        }
-    )
-
-    # ==================== MOSTRAR EN STREAMLIT ====================
-    col1, col2 = st.columns([3, 1])
-
-    with col1:
-        st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        st.subheader("📊 Resumen por Estado")
-        st.dataframe(
-            datos_mapa_limpio.sort_values("Volt_Minimo", ascending=True),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Estado_Normalizado": "Estado",
-                "Volt_Minimo": st.column_config.NumberColumn(
-                    "Volt Mínimo",
-                    format="$%.2f"
-                ),
-                "Num_Tiendas": "Tiendas"
-            }
-        )
-
-    # ==================== DIAGNÓSTICO (oculto por defecto) ====================
-    with st.expander("🔍 Diagnóstico"):
-        st.write(f"**Total de estados en el mapa:** {len(datos_mapa_limpio)}")
-        st.write(f"**Estados no mapeados:** {set(datos_mapa['Estado']) - set(datos_mapa_limpio['Estado_Normalizado'])}")
-
-else:
-    st.error("❌ No se pudo cargar el mapa. Verifica que mexico.json esté en tu repositorio.")
-    if geojson is None:
-        st.info("💡 El archivo mexico.json no se encontró o no es válido.")
-    if datos_mapa_limpio.empty:
-        st.info("💡 No hay datos para mostrar. Verifica el archivo CSV.")
+st.dataframe(df_tabla, use_container_width=True, hide_index=True)
