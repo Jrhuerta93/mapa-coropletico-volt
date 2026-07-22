@@ -9,11 +9,62 @@ import time
 import hashlib
 import os
 
+# ============================================
+# CONFIGURACIÓN DE PÁGINA (ANTES DE CUALQUIER COSA)
+# ============================================
 st.set_page_config(
     page_title="Análisis de Precios y Trazabilidad", 
     layout="wide",
-    page_icon="📊"
+    page_icon="📊",
+    initial_sidebar_state="expanded"
 )
+
+# ============================================
+# CSS PARA OCULTAR ICONOS DE STREAMLIT
+# ============================================
+st.markdown("""
+    <style>
+    /* Ocultar el menú de hamburguesa (tres puntos arriba a la derecha) */
+    #MainMenu {visibility: hidden;}
+    
+    /* Ocultar el icono de GitHub */
+    .stAppDeployButton {display: none;}
+    
+    /* Ocultar el footer de "Made with Streamlit" */
+    footer {visibility: hidden;}
+    
+    /* Ocultar la barra de herramientas de Streamlit */
+    .stToolbar {visibility: hidden;}
+    
+    /* Ocultar el botón de compartir */
+    .stApp a[href*="share.streamlit.io"] {display: none;}
+    
+    /* Ocultar elementos del header */
+    header {visibility: hidden;}
+    
+    /* Ocultar el botón de deploy/github */
+    button[kind="header"] {display: none;}
+    
+    /* Estilos personalizados del título */
+    .main-title {
+        font-size: 32px;
+        font-weight: bold;
+        color: #1a1a2e;
+        padding: 20px 0;
+        text-align: center;
+        border-bottom: 3px solid #16213e;
+        margin-bottom: 30px;
+    }
+    .stMetric {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="main-title">🗺️ Análisis de Precios y Trazabilidad</div>', unsafe_allow_html=True)
 
 # ============================================
 # ESTILOS Y CONFIGURACIÓN
