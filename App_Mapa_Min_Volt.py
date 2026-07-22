@@ -9,9 +9,6 @@ import numpy as np
 st.set_page_config(page_title="Volt Mínimo por Estado", layout="wide")
 st.title("🗺️ Mapa Coroplético: Volt Mínimo por Estado")
 
-# Ocultar mensajes de advertencia y éxito
-st.set_option('deprecation.showPyplotGlobalUse', False)
-
 @st.cache_data
 def cargar_datos():
     try:
@@ -26,12 +23,10 @@ def cargar_datos():
 
 @st.cache_data
 def cargar_geojson():
-    # Intentar cargar desde archivo local primero
     try:
         with open('mexico.json', 'r', encoding='utf-8') as f:
             return json.load(f)
-    except Exception as e:
-        # Intentar descargar desde URL confiable
+    except:
         try:
             url = "https://raw.githubusercontent.com/angelnmara/geojson/master/mexicoHigh.json"
             response = requests.get(url, timeout=10)
