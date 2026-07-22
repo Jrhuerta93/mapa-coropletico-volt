@@ -41,18 +41,13 @@ def cargar_datos():
         df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
         df.columns = df.columns.str.strip()
         
-        # Mostrar columnas para debug (opcional)
-        # st.write("Columnas disponibles:", df.columns.tolist())
-        
         if 'VOLT' in df.columns:
             df['VOLT'] = pd.to_numeric(df['VOLT'], errors='coerce').fillna(0.0)
         
-        # Asegurar que la columna REGION existe y tiene datos
+        # Asegurar que la columna REGIÓN existe y tiene datos
         if 'REGIÓN' not in df.columns:
-            # Si no existe, crear una columna REGION con valores por defecto
             df['REGIÓN'] = 'Sin región'
         else:
-            # Limpiar y normalizar región
             df['REGIÓN'] = df['REGIÓN'].fillna('Sin región')
             df['REGIÓN'] = df['REGIÓN'].str.strip()
             df['REGIÓN'] = df['REGIÓN'].replace('', 'Sin región')
@@ -89,18 +84,14 @@ if 'GRUPO' not in df.columns:
 st.sidebar.markdown("### 🔍 Filtros")
 st.sidebar.markdown("---")
 
-# Obtener regiones únicas (excluyendo valores nulos/vacíos)
+# Obtener regiones únicas
 regiones = df['REGIÓN'].unique()
 regiones = [r for r in regiones if r and r != 'Sin región' and str(r).strip() != '']
-regiones = sorted(regiones) if len(regiones) > 0 else ['Todas']
+regiones = sorted(regiones) if len(regiones) > 0 else []
 
 estados = sorted(df['ESTADO'].unique())
 grupos = sorted(df['GRUPO'].unique())
 
-# Debug: mostrar regiones disponibles (solo para desarrollo)
-# st.sidebar.write("Regiones disponibles:", regiones)
-
-# Filtros
 filtro_region = st.sidebar.selectbox(
     "📌 Región",
     options=["Todas"] + regiones if regiones else ["Todas"]
@@ -232,7 +223,7 @@ umbral_critico = precio_minimo_global + (rango_precio * 0.25)
 df_estado['Es_Critico'] = df_estado['Volt_minimo'] <= umbral_critico
 
 # ============================================
-# CREAR TEXTO PARA HOVER Y MAPA
+# CREAR TEXTO PARA HOVER Y MAPA - CORREGIDO
 # ============================================
 df_estado['Color_Texto'] = df_estado['Volt_minimo'].apply(
     lambda x: get_text_color(x, precio_minimo_global, precio_maximo_global)
@@ -244,13 +235,15 @@ df_estado['Texto_Mapa'] = df_estado.apply(
     axis=1
 )
 
-# HOVER COMPLETO - CORREGIDO PARA QUE FUNCIONE
+# ============================================
+# HOVER COMPLETO - CORREGIDO (USANDO 'REGIÓN' CON ACENTO)
+# ============================================
 df_estado['Hover_Texto'] = df_estado.apply(
     lambda row: f"<b>{row['Estado_Mapa']}</b><br>" +
                 f"🏢 Grupo: {row['Grupo']}<br>" +
                 f"💰 Precio: <b>${row['Volt_minimo']:,.2f}</b><br>" +
                 f"📊 Tiendas: {row['Total_Tiendas']}" +
-                (f"<br>📍 Región: {row['REGIÓN']}" if 'REGION' in row and pd.notna(row['REGIÓN']) else "") +
+                (f"<br>📍 Región: {row['REGIÓN']}" if 'REGIÓN' in row and pd.notna(row['REGIÓN']) and row['REGIÓN'] != 'Sin región' else "") +
                 ("<br>🔴 <b>¡PRECIO CRÍTICO!</b>" if row['Es_Critico'] else ""),
     axis=1
 )
@@ -319,7 +312,7 @@ fig.add_trace(go.Choropleth(
         tickfont=dict(size=12),
         bgcolor="rgba(255,255,255,0.8)"
     ),
-    hovertemplate="%{customdata[0]}<extra></extra>",  # <-- Esto es clave para el hover
+    hovertemplate="%{customdata[0]}<extra></extra>",
     customdata=df_estado['Hover_Texto'].values,
     showscale=True
 ))
@@ -353,9 +346,13 @@ for feature in geojson_data['features']:
 df_estado['lon'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[0])
 df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[1])
 
-df_con_coords = df_estado.dropna(subset=['lon', 'lat'])
+# ============================================
+# LIMPIAR DATOS DUPLICADOS - EVITAR ENCIMAMIENTO
+# ============================================
+# Eliminar duplicados por estado para que solo haya una etiqueta por estado
+df_con_coords = df_estado.dropna(subset=['lon', 'lat']).drop_duplicates(subset=['Estado_Mapa'])
 
-# 3. Agregar etiquetas de precio
+# 3. Agregar etiquetas de precio - UNA SOLA POR ESTADO
 for _, row in df_con_coords.iterrows():
     fig.add_trace(go.Scattergeo(
         lon=[row['lon']],
@@ -442,8 +439,8 @@ st.plotly_chart(fig, use_container_width=True)
 # --- TABLA DE DATOS ---
 st.subheader("📊 Detalle por Estado")
 
-df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico']].copy()
-df_tabla.columns = ['Estado', 'Grupo con mejor precio', 'Precio Mínimo', 'Total Tiendas', 'Precio Crítico']
+df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico', 'REGIÓN']].copy()
+df_tabla.columns = ['Estado', 'Grupo con mejor precio', 'Precio Mínimo', 'Total Tiendas', 'Precio Crítico', 'Región']
 df_tabla = df_tabla.sort_values('Precio Mínimo', ascending=True)
 
 df_tabla['Precio Mínimo'] = df_tabla['Precio Mínimo'].apply(lambda x: f"${x:,.2f}")
