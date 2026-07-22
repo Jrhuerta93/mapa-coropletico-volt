@@ -10,10 +10,10 @@ import hashlib
 import os
 
 # ============================================
-# CONFIGURACIÓN DE PÁGINA (ANTES DE CUALQUIER COSA)
+# CONFIGURACIÓN DE PÁGINA
 # ============================================
 st.set_page_config(
-    page_title="WHOLESALE PRICE COMPLIANCE", 
+    page_title="Análisis de Precios y Trazabilidad", 
     layout="wide",
     page_icon="📊",
     initial_sidebar_state="expanded"
@@ -46,29 +46,6 @@ st.markdown("""
     button[kind="header"] {display: none;}
     
     /* Estilos personalizados del título */
-    .main-title {
-        font-size: 32px;
-        font-weight: bold;
-        color: #1a1a2e;
-        padding: 20px 0;
-        text-align: center;
-        border-bottom: 3px solid #16213e;
-        margin-bottom: 30px;
-    }
-    .stMetric {
-        background: #f8f9fa;
-        padding: 15px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# ============================================
-# ESTILOS Y CONFIGURACIÓN
-# ============================================
-st.markdown("""
-    <style>
     .main-title {
         font-size: 32px;
         font-weight: bold;
@@ -556,15 +533,12 @@ with tab1:
         # ============================================
         st.subheader("📈 Curva de Precios por Clientes vs Objetivo")
         
-        # Preparar datos ordenados por precio
         df_linea = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo']].copy()
         df_linea.columns = ['Estado', 'Grupo', 'Precio']
         df_linea = df_linea.sort_values('Precio', ascending=True).reset_index(drop=True)
         
-        # Crear figura
         fig_linea = go.Figure()
         
-        # 1. RECTÁNGULOS DE FONDO (SEMAFORO)
         for rango in RANGOS_SEMAFORO:
             fig_linea.add_hrect(
                 y0=rango['min'],
@@ -574,7 +548,6 @@ with tab1:
                 layer="below"
             )
         
-        # 2. LÍNEA DE BANDA OBJETIVO
         fig_linea.add_hline(
             y=PRECIO_OBJETIVO,
             line_dash="solid",
@@ -583,7 +556,6 @@ with tab1:
             layer="below"
         )
         
-        # Anotación de la banda objetivo
         fig_linea.add_annotation(
             x=1.0,
             y=PRECIO_OBJETIVO,
@@ -601,7 +573,6 @@ with tab1:
             xshift=10
         )
         
-        # 3. ÁREA BAJO LA CURVA
         fig_linea.add_trace(go.Scatter(
             x=df_linea['Estado'],
             y=df_linea['Precio'],
@@ -617,7 +588,6 @@ with tab1:
             customdata=df_linea['Grupo']
         ))
         
-        # 4. EJE Y AJUSTADO A PRECIOS REALES
         y_min = max(170, df_linea['Precio'].min() - 8)
         y_max = min(250, df_linea['Precio'].max() + 8)
         
@@ -639,7 +609,6 @@ with tab1:
             showgrid=False
         )
         
-        # 5. CONFIGURAR LAYOUT
         fig_linea.update_layout(
             title=dict(
                 text="Curva de Precios por Clientes vs Objetivo",
@@ -674,9 +643,6 @@ with tab1:
         
         st.plotly_chart(fig_linea, use_container_width=True)
         
-        # ============================================
-        # INSIGHTS Y STORYTELLING
-        # ============================================
         st.markdown("---")
         st.subheader("📖 Insights y Storytelling")
         
