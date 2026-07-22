@@ -13,7 +13,7 @@ import os
 # CONFIGURACIÓN DE PÁGINA (ANTES DE CUALQUIER COSA)
 # ============================================
 st.set_page_config(
-    page_title="Análisis de Precios y Trazabilidad", 
+    page_title="WHOLESALE PRICE COMPLIANCE", 
     layout="wide",
     page_icon="📊",
     initial_sidebar_state="expanded"
