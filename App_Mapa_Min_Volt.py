@@ -5,8 +5,6 @@ import plotly.graph_objects as go
 import json
 import requests
 import numpy as np
-from scipy.spatial import distance_matrix
-from scipy.cluster.hierarchy import linkage, fcluster
 import hashlib
 import os
 
@@ -36,16 +34,6 @@ st.markdown("""
         border-radius: 10px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    .tab-content {
-        padding: 20px 0;
-    }
-    .critical-price {
-        background-color: #ff6b6b;
-        color: white;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-weight: bold;
-    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -56,7 +44,6 @@ st.markdown('<div class="main-title">🗺️ Análisis de Precios y Trazabilidad
 # ============================================
 @st.cache_data
 def obtener_hash_archivo():
-    """Obtiene el hash del archivo CSV para detectar cambios"""
     try:
         with open("datos_tiendas.csv", "rb") as f:
             return hashlib.md5(f.read()).hexdigest()
@@ -79,7 +66,6 @@ def cargar_datos():
             df['REGIÓN'] = df['REGIÓN'].str.strip()
             df['REGIÓN'] = df['REGIÓN'].replace('', 'Sin región')
         
-        # Asegurar columnas de coordenadas
         if 'Longitud' in df.columns:
             df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
         if 'Latitud' in df.columns:
@@ -106,10 +92,10 @@ def cargar_geojson():
     return None
 
 # ============================================
-# FUNCIONES DE TRAZABILIDAD
+# FUNCIONES DE TRAZABILIDAD (SIN SCIPY)
 # ============================================
-def calcular_distancias(df):
-    """Calcula las distancias entre todos los clientes"""
+def calcular_distancias_manual(df):
+    """Calcula las distancias entre todos los clientes usando Haversine"""
     if 'Longitud' not in df.columns or 'Latitud' not in df.columns:
         return None
     
@@ -117,16 +103,32 @@ def calcular_distancias(df):
     if len(df_coords) < 2:
         return None
     
-    coords = df_coords[['Longitud', 'Latitud']].values
-    dist_matrix = distance_matrix(coords, coords) * 111
+    def haversine(lat1, lon1, lat2, lon2):
+        R = 6371
+        lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+        c = 2 * np.arcsin(np.sqrt(a))
+        return R * c
     
     conexiones = []
-    for i in range(len(coords)):
-        distancias = dist_matrix[i]
-        indices_cercanos = np.argsort(distancias)[1:6]  # Top 5 más cercanos
+    n = len(df_coords)
+    
+    for i in range(n):
+        distancias = []
+        for j in range(n):
+            if i != j:
+                dist = haversine(
+                    df_coords.iloc[i]['Latitud'], df_coords.iloc[i]['Longitud'],
+                    df_coords.iloc[j]['Latitud'], df_coords.iloc[j]['Longitud']
+                )
+                distancias.append((j, dist))
         
-        for j in indices_cercanos:
-            if distancias[j] <= 100:
+        distancias.sort(key=lambda x: x[1])
+        
+        for j, dist in distancias[:5]:
+            if dist <= 100:
                 conexiones.append({
                     'folio_origen': df_coords.iloc[i]['Folio Emetrix'],
                     'folio_destino': df_coords.iloc[j]['Folio Emetrix'],
@@ -138,7 +140,7 @@ def calcular_distancias(df):
                     'latitud_origen': df_coords.iloc[i]['Latitud'],
                     'longitud_destino': df_coords.iloc[j]['Longitud'],
                     'latitud_destino': df_coords.iloc[j]['Latitud'],
-                    'distancia_km': distancias[j],
+                    'distancia_km': dist,
                     'precio_origen': df_coords.iloc[i]['VOLT'],
                     'precio_destino': df_coords.iloc[j]['VOLT'],
                     'estado_origen': df_coords.iloc[i]['ESTADO'],
@@ -147,30 +149,6 @@ def calcular_distancias(df):
     
     return pd.DataFrame(conexiones)
 
-def detectar_clusters(df, distancia_max=50):
-    """Detecta clusters de clientes cercanos"""
-    if 'Longitud' not in df.columns or 'Latitud' not in df.columns:
-        return df
-    
-    df_coords = df.dropna(subset=['Longitud', 'Latitud'])
-    if len(df_coords) < 2:
-        df['Cluster'] = -1
-        return df
-    
-    coords = df_coords[['Longitud', 'Latitud']].values
-    dist_matrix = distance_matrix(coords, coords) * 111
-    
-    # Usar clustering jerárquico
-    linkage_matrix = linkage(coords, method='ward')
-    clusters = fcluster(linkage_matrix, t=distancia_max, criterion='distance')
-    
-    # Asignar clusters al dataframe original
-    df['Cluster'] = -1
-    for idx, cluster_id in zip(df_coords.index, clusters):
-        df.loc[idx, 'Cluster'] = int(cluster_id)
-    
-    return df
-
 # ============================================
 # CARGA DE DATOS
 # ============================================
@@ -178,12 +156,11 @@ df = cargar_datos()
 if df.empty:
     st.stop()
 
-# Verificar si existe la columna GRUPO
 if 'GRUPO' not in df.columns:
     df['GRUPO'] = df['Folio Emetrix']
 
 # ============================================
-# SIDEBAR - FILTROS Y ACTUALIZACIÓN
+# SIDEBAR - FILTROS
 # ============================================
 st.sidebar.markdown("### 🔄 Actualización de Datos")
 if st.sidebar.button("🔄 Recargar Datos"):
@@ -193,7 +170,6 @@ if st.sidebar.button("🔄 Recargar Datos"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🔍 Filtros")
 
-# Obtener valores únicos para filtros
 regiones = df['REGIÓN'].unique()
 regiones = [r for r in regiones if r and r != 'Sin región' and str(r).strip() != '']
 regiones = sorted(regiones) if len(regiones) > 0 else []
@@ -216,7 +192,6 @@ filtro_grupo = st.sidebar.selectbox(
     options=["Todos"] + grupos
 )
 
-# Aplicar filtros
 df_filtrado = df.copy()
 
 if filtro_region != "Todas" and filtro_region:
@@ -234,13 +209,6 @@ if df_filtrado.empty:
 
 st.sidebar.markdown("---")
 st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
-
-# Mostrar regiones disponibles
-if filtro_region == "Todas":
-    regiones_filtradas = df_filtrado['REGIÓN'].unique()
-    regiones_filtradas = [r for r in regiones_filtradas if r and r != 'Sin región']
-    if regiones_filtradas:
-        st.sidebar.markdown(f"**Regiones presentes:** {', '.join(sorted(regiones_filtradas))}")
 
 # ============================================
 # CREAR TABS
@@ -316,7 +284,6 @@ with tab1:
     
     df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
     
-    # Función para color de texto
     def get_text_color(value, min_val, max_val):
         if max_val == min_val:
             return 'white'
@@ -326,7 +293,6 @@ with tab1:
         else:
             return 'black'
     
-    # Identificar precios críticos
     precio_minimo_global = df_estado['Volt_minimo'].min()
     precio_maximo_global = df_estado['Volt_minimo'].max()
     rango_precio = precio_maximo_global - precio_minimo_global
@@ -334,7 +300,6 @@ with tab1:
     umbral_critico = precio_minimo_global + (rango_precio * 0.25)
     df_estado['Es_Critico'] = df_estado['Volt_minimo'] <= umbral_critico
     
-    # Preparar datos para el mapa
     df_estado['Color_Texto'] = df_estado['Volt_minimo'].apply(
         lambda x: get_text_color(x, precio_minimo_global, precio_maximo_global)
     )
@@ -354,12 +319,10 @@ with tab1:
         axis=1
     )
     
-    # Cargar GeoJSON
     geojson_data = cargar_geojson()
     if geojson_data is None:
         st.error("❌ No se pudo cargar el archivo GeoJSON")
     else:
-        # --- MÉTRICAS PRINCIPALES ---
         st.markdown("### 📊 Resumen Ejecutivo")
         col1, col2, col3, col4, col5 = st.columns(5)
         
@@ -384,15 +347,12 @@ with tab1:
             st.metric("🔴 Precios críticos", total_criticos)
         
         st.markdown("---")
-        
-        # --- CREAR MAPA ---
         st.subheader("📍 Mapa de Precios Mínimos por Estado")
         
         COLOR_SCALE = 'Blues'
         
         fig = go.Figure()
         
-        # Agregar mapa coropleto
         fig.add_trace(go.Choropleth(
             geojson=geojson_data,
             locations=df_estado['Estado_Mapa'],
@@ -422,7 +382,6 @@ with tab1:
             showscale=True
         ))
         
-        # Calcular centroides
         def get_centroid(feature):
             try:
                 if feature['geometry']['type'] == 'Polygon':
@@ -452,7 +411,6 @@ with tab1:
         df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[1])
         df_con_coords = df_estado.dropna(subset=['lon', 'lat']).drop_duplicates(subset=['Estado_Mapa'])
         
-        # Agregar etiquetas
         for _, row in df_con_coords.iterrows():
             fig.add_trace(go.Scattergeo(
                 lon=[row['lon']],
@@ -470,7 +428,6 @@ with tab1:
                 showlegend=False
             ))
         
-        # Agregar marcadores para precios críticos
         df_criticos = df_con_coords[df_con_coords['Es_Critico']]
         if not df_criticos.empty:
             fig.add_trace(go.Scattergeo(
@@ -488,7 +445,6 @@ with tab1:
                 showlegend=False
             ))
         
-        # Configurar layout
         fig.update_geos(
             fitbounds="locations",
             visible=False,
@@ -536,7 +492,6 @@ with tab1:
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # --- TABLA DE DATOS ---
         st.subheader("📊 Detalle por Estado")
         
         df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico', 'REGIÓN']].copy()
@@ -555,7 +510,7 @@ with tab1:
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # ============================================
-# TAB 2: TRAZABILIDAD DE CLIENTES (NUEVO COMPLETO)
+# TAB 2: TRAZABILIDAD DE CLIENTES (CORREGIDO)
 # ============================================
 with tab2:
     st.markdown("### 🔗 Trazabilidad de Clientes")
@@ -574,27 +529,22 @@ with tab2:
     
     mostrar_lineas = st.sidebar.checkbox("📊 Mostrar líneas de conexión", value=True)
     mostrar_etiquetas = st.sidebar.checkbox("🏷️ Mostrar etiquetas de clientes", value=True)
-    mostrar_clusters = st.sidebar.checkbox("🎯 Mostrar clusters", value=True)
     
     # --- CALCULAR DATOS DE TRAZABILIDAD ---
-    df_conexiones = calcular_distancias(df_filtrado)
+    df_conexiones = calcular_distancias_manual(df_filtrado)
     
     if df_conexiones is None or df_conexiones.empty:
         st.warning("⚠️ No hay suficientes datos con coordenadas para calcular distancias")
         st.stop()
     
-    # Filtrar por distancia
     df_conexiones = df_conexiones[df_conexiones['distancia_km'] <= distancia_max]
     
     if df_conexiones.empty:
         st.warning(f"⚠️ No hay conexiones dentro de {distancia_max} km con los filtros actuales")
         st.stop()
     
-    # Detectar clusters
-    df_clusters = detectar_clusters(df_filtrado, distancia_max=distancia_max)
-    
     # --- MÉTRICAS DE TRAZABILIDAD ---
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric("🔗 Conexiones", len(df_conexiones))
@@ -608,105 +558,72 @@ with tab2:
         st.metric("📏 Dist. mínima", f"{dist_min:.2f} km")
     
     with col4:
-        dist_max = df_conexiones['distancia_km'].max()
-        st.metric("📏 Dist. máxima", f"{dist_max:.2f} km")
-    
-    with col5:
-        num_clusters = df_clusters['Cluster'].nunique() - 1 if 'Cluster' in df_clusters.columns else 0
-        st.metric("🎯 Clusters", num_clusters)
+        dist_max_val = df_conexiones['distancia_km'].max()
+        st.metric("📏 Dist. máxima", f"{dist_max_val:.2f} km")
     
     st.markdown("---")
     
-    # --- MAPA DE TRAZABILIDAD ---
+    # --- MAPA DE TRAZABILIDAD USANDO SCATTERMAP (CORREGIDO) ---
     st.subheader("📍 Mapa de Conexiones entre Clientes")
     
-    # Preparar datos para el mapa
     df_clientes = df_filtrado.dropna(subset=['Longitud', 'Latitud'])
     
-    # Asignar colores según cluster
-    if mostrar_clusters and 'Cluster' in df_clusters.columns:
-        cluster_colors = {
-            -1: 'gray',
-            1: '#FF6B6B',
-            2: '#4ECDC4',
-            3: '#45B7D1',
-            4: '#96CEB4',
-            5: '#FFEAA7',
-            6: '#DDA0DD',
-            7: '#FF8A5C',
-            8: '#A29BFE',
-            9: '#FD79A8',
-            10: '#00CEC9'
-        }
-        # Asegurar que todos los clientes tengan cluster
-        colores_clientes = df_clientes.apply(
-            lambda row: cluster_colors.get(row['Cluster'], 'gray') if pd.notna(row['Cluster']) else 'gray',
-            axis=1
-        )
-    else:
-        # Colores según precio
-        colores_clientes = []
-        for precio in df_clientes['VOLT']:
-            if precio <= df_clientes['VOLT'].quantile(0.33):
-                colores_clientes.append('#2ECC40')  # Verde
-            elif precio <= df_clientes['VOLT'].quantile(0.66):
-                colores_clientes.append('#FFD700')  # Amarillo
-            else:
-                colores_clientes.append('#FF6B6B')  # Rojo
+    # Colores según precio
+    colores_clientes = []
+    for precio in df_clientes['VOLT']:
+        if precio <= df_clientes['VOLT'].quantile(0.33):
+            colores_clientes.append('#2ECC40')
+        elif precio <= df_clientes['VOLT'].quantile(0.66):
+            colores_clientes.append('#FFD700')
+        else:
+            colores_clientes.append('#FF6B6B')
     
-    # Crear figura
+    # Crear figura con Scattermapbox
     fig_trazabilidad = go.Figure()
     
-    # 1. Agregar puntos de clientes
+    # 1. Puntos de clientes
     fig_trazabilidad.add_trace(go.Scattermapbox(
-        lon=df_clientes['Longitud'],
-        lat=df_clientes['Latitud'],
+        lon=df_clientes['Longitud'].tolist(),
+        lat=df_clientes['Latitud'].tolist(),
         mode='markers+text' if mostrar_etiquetas else 'markers',
-        text=df_clientes['GRUPO'] if mostrar_etiquetas else None,
+        text=df_clientes['GRUPO'].tolist() if mostrar_etiquetas else None,
         textposition='top center',
-        textfont=dict(size=9, color='black', family='Arial'),
+        textfont=dict(size=9, color='black'),
         marker=dict(
-            size=12,
+            size=14,
             color=colores_clientes,
-            opacity=0.9,
+            opacity=0.8,
             line=dict(width=1, color='white')
         ),
         hovertemplate="<b>%{customdata[0]}</b><br>" +
                       "🏢 Grupo: %{customdata[1]}<br>" +
                       "💰 Precio: <b>$%{customdata[2]:,.2f}</b><br>" +
                       "📍 Estado: %{customdata[3]}<br>" +
-                      "📊 Folio: %{customdata[4]}" +
-                      ("<br>🎯 Cluster: %{customdata[5]}" if mostrar_clusters else "") +
+                      "📊 Folio: %{customdata[4]}<br>" +
                       "<extra></extra>",
-        customdata=df_clientes[['CIUDAD', 'GRUPO', 'VOLT', 'ESTADO', 'Folio Emetrix', 'Cluster']].values if 'Cluster' in df_clientes.columns 
-                    else df_clientes[['CIUDAD', 'GRUPO', 'VOLT', 'ESTADO', 'Folio Emetrix']].values,
+        customdata=df_clientes[['CIUDAD', 'GRUPO', 'VOLT', 'ESTADO', 'Folio Emetrix']].values.tolist(),
         name='Clientes'
     ))
     
-    # 2. Agregar líneas de conexión
+    # 2. Líneas de conexión
     if mostrar_lineas:
-        # Agrupar conexiones para evitar duplicados
         conexiones_unicas = df_conexiones.drop_duplicates(subset=['folio_origen', 'folio_destino'])
         
         for _, row in conexiones_unicas.iterrows():
-            # Color según diferencia de precio
             diff_precio = row['precio_origen'] - row['precio_destino']
             if diff_precio > 5:
-                color_linea = 'rgba(46, 204, 64, 0.6)'  # Verde - Origen más barato
+                color_linea = 'rgba(46, 204, 64, 0.5)'
             elif diff_precio < -5:
-                color_linea = 'rgba(255, 107, 107, 0.6)'  # Rojo - Destino más barato
+                color_linea = 'rgba(255, 107, 107, 0.5)'
             else:
-                color_linea = 'rgba(52, 152, 219, 0.4)'  # Azul - Precios similares
-            
-            # Grosor según distancia
-            width = max(1, min(4, int(5 - (row['distancia_km'] / 25))))
+                color_linea = 'rgba(52, 152, 219, 0.4)'
             
             fig_trazabilidad.add_trace(go.Scattermapbox(
                 lon=[row['longitud_origen'], row['longitud_destino']],
                 lat=[row['latitud_origen'], row['latitud_destino']],
                 mode='lines',
                 line=dict(
-                    width=width,
+                    width=2,
                     color=color_linea
                 ),
                 hovertemplate="<b>🔗 Conexión</b><br>" +
@@ -725,11 +642,10 @@ with tab2:
                     row['precio_destino'],
                     row['precio_origen'] - row['precio_destino']
                 ]],
-                showlegend=False,
-                name='Conexiones'
+                showlegend=False
             ))
     
-    # Configurar layout
+    # Configurar mapa
     fig_trazabilidad.update_layout(
         mapbox=dict(
             style="carto-positron",
@@ -740,23 +656,12 @@ with tab2:
             zoom=5
         ),
         margin={"r":0, "t":30, "l":0, "b":0},
-        height=750,
+        height=700,
         hoverlabel=dict(
             bgcolor="white",
             font_size=12,
-            font_family="Arial",
-            font_color="#2c3e50",
-            bordercolor="#2c3e50"
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="right",
-            x=1
-        ),
-        plot_bgcolor="white",
-        paper_bgcolor="white"
+            font_family="Arial"
+        )
     )
     
     st.plotly_chart(fig_trazabilidad, use_container_width=True)
@@ -764,7 +669,6 @@ with tab2:
     # --- TABLA DE CONEXIONES ---
     st.subheader("📊 Tabla de Conexiones y Distancias")
     
-    # Crear tabla formateada
     df_tabla_conexiones = df_conexiones[['cliente_origen', 'cliente_destino', 'ciudad_origen', 'ciudad_destino',
                                           'distancia_km', 'precio_origen', 'precio_destino', 
                                           'estado_origen', 'estado_destino']].copy()
@@ -772,67 +676,26 @@ with tab2:
                                     'Distancia (km)', 'Precio Origen', 'Precio Destino', 
                                     'Estado Origen', 'Estado Destino']
     
-    # Formatear precios
     df_tabla_conexiones['Precio Origen'] = df_tabla_conexiones['Precio Origen'].apply(lambda x: f"${x:,.2f}")
     df_tabla_conexiones['Precio Destino'] = df_tabla_conexiones['Precio Destino'].apply(lambda x: f"${x:,.2f}")
     
     # Calcular diferencia
-    df_tabla_conexiones['Diferencia'] = df_tabla_conexiones['Precio Origen'].str.replace('$', '').str.replace(',', '').astype(float) - \
-                                         df_tabla_conexiones['Precio Destino'].str.replace('$', '').str.replace(',', '').astype(float)
-    df_tabla_conexiones['Diferencia'] = df_tabla_conexiones['Diferencia'].apply(lambda x: f"${x:,.2f}")
+    precio_origen_num = df_tabla_conexiones['Precio Origen'].str.replace('$', '').str.replace(',', '').astype(float)
+    precio_destino_num = df_tabla_conexiones['Precio Destino'].str.replace('$', '').str.replace(',', '').astype(float)
+    df_tabla_conexiones['Diferencia'] = (precio_origen_num - precio_destino_num).apply(lambda x: f"${x:,.2f}")
     
-    # Ordenar por distancia
     df_tabla_conexiones = df_tabla_conexiones.sort_values('Distancia (km)', ascending=True)
     
-    # Destacar filas con menor distancia
     def color_conexiones(row):
         if row['Distancia (km)'] <= df_tabla_conexiones['Distancia (km)'].quantile(0.25):
             return ['background-color: #cce5ff; font-weight: bold'] * len(row)
-        elif row['Distancia (km)'] >= df_tabla_conexiones['Distancia (km)'].quantile(0.75):
-            return ['background-color: #ffe0e0'] * len(row)
         return [''] * len(row)
     
     styled_conexiones = df_tabla_conexiones.style.apply(color_conexiones, axis=1)
     st.dataframe(styled_conexiones, use_container_width=True, hide_index=True)
     
-    # --- ANÁLISIS DE CLUSTERS ---
-    if mostrar_clusters and 'Cluster' in df_clusters.columns:
-        st.subheader("🎯 Análisis de Clusters")
-        
-        # Estadísticas por cluster
-        df_cluster_stats = df_clusters[df_clusters['Cluster'] != -1].groupby('Cluster').agg({
-            'GRUPO': 'count',
-            'VOLT': ['mean', 'min', 'max'],
-            'ESTADO': lambda x: x.nunique()
-        }).round(2)
-        
-        df_cluster_stats.columns = ['Clientes', 'Precio Promedio', 'Precio Mínimo', 'Precio Máximo', 'Estados']
-        df_cluster_stats = df_cluster_stats.sort_values('Clientes', ascending=False)
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### 📊 Estadísticas por Cluster")
-            st.dataframe(df_cluster_stats, use_container_width=True)
-        
-        with col2:
-            st.markdown("#### 📈 Distribución de Clusters")
-            cluster_counts = df_clusters[df_clusters['Cluster'] != -1]['Cluster'].value_counts().sort_index()
-            
-            fig_clusters = px.bar(
-                x=cluster_counts.index,
-                y=cluster_counts.values,
-                title="Número de Clientes por Cluster",
-                labels={'x': 'Cluster', 'y': 'Clientes'},
-                color=cluster_counts.values,
-                color_continuous_scale='Blues'
-            )
-            fig_clusters.update_layout(showlegend=False, height=300)
-            st.plotly_chart(fig_clusters, use_container_width=True)
-    
     # --- CLIENTES SIN CONEXIÓN ---
     with st.expander("🔍 Clientes sin conexión (aislados)"):
-        # Identificar clientes que no tienen conexiones
         folios_con_conexion = set(df_conexiones['folio_origen']).union(set(df_conexiones['folio_destino']))
         df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con_conexion)]
         df_aislados = df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']].copy()
@@ -852,7 +715,6 @@ st.markdown("---")
 col1, col2, col3 = st.columns([1, 1, 1])
 
 with col2:
-    # Exportar datos de conexiones
     if 'df_conexiones' in locals() and not df_conexiones.empty:
         csv_conexiones = df_tabla_conexiones.to_csv(index=False)
         st.download_button(
@@ -868,9 +730,8 @@ with col2:
 # ============================================
 st.markdown("---")
 st.markdown(
-    "<p style='text-align: center; color: #666; font-size: 12px;'>"
-    "Dashboard desarrollado con ❤️ | Datos actualizados al: " + 
-    pd.Timestamp.now().strftime('%d/%m/%Y %H:%M') +
-    "</p>",
+    f"<p style='text-align: center; color: #666; font-size: 12px;'>"
+    f"Dashboard desarrollado con ❤️ | Datos actualizados al: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}"
+    f"</p>",
     unsafe_allow_html=True
 )
