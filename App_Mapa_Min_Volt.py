@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import json
 import requests
 import numpy as np
+from matplotlib.colors import to_rgb
 
 st.set_page_config(
     page_title="Volt Mínimo por Estado", 
@@ -24,31 +25,15 @@ st.markdown("""
         border-bottom: 3px solid #16213e;
         margin-bottom: 30px;
     }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 20px;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-    }
     .stMetric {
         background: #f8f9fa;
         padding: 15px;
         border-radius: 10px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    /* Estilo para precios críticos */
-    .critical-price {
-        background-color: #ff6b6b;
-        color: white;
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-weight: bold;
-    }
     </style>
 """, unsafe_allow_html=True)
 
-# Título con estilo
 st.markdown('<div class="main-title">🗺️ Mapa de Precios Mínimos por Estado</div>', unsafe_allow_html=True)
 
 @st.cache_data
@@ -90,12 +75,10 @@ if 'GRUPO' not in df.columns:
 st.sidebar.markdown("### 🔍 Filtros")
 st.sidebar.markdown("---")
 
-# Crear opciones para filtros
 regiones = df['REGION'].unique() if 'REGION' in df.columns else []
 estados = df['ESTADO'].unique()
 grupos = df['GRUPO'].unique()
 
-# Filtros en sidebar con mejor estilo
 filtro_region = st.sidebar.selectbox(
     "📌 Región",
     options=["Todas"] + sorted(regiones.tolist()) if len(regiones) > 0 else ["Todas"]
@@ -127,18 +110,15 @@ if df_filtrado.empty:
     st.warning("⚠️ No hay datos con los filtros seleccionados")
     st.stop()
 
-# Mostrar resumen de filtros
 st.sidebar.markdown("---")
 st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
 
 # --- IDENTIFICAR LA TIENDA CON PRECIO MÍNIMO POR ESTADO ---
 df_estado_min = df_filtrado.loc[df_filtrado.groupby('ESTADO')['VOLT'].idxmin()]
 
-# Crear dataframe con los datos relevantes
 df_estado = df_estado_min[['ESTADO', 'VOLT', 'GRUPO']].copy()
 df_estado.columns = ['ESTADO', 'Volt_minimo', 'Grupo']
 
-# Agregar REGION si existe
 if 'REGION' in df_filtrado.columns:
     df_estado = df_estado.merge(
         df_filtrado[['ESTADO', 'REGION']].drop_duplicates('ESTADO'), 
@@ -146,7 +126,6 @@ if 'REGION' in df_filtrado.columns:
         how='left'
     )
 
-# Contar tiendas por estado
 tiendas_por_estado = df_filtrado.groupby('ESTADO').size().reset_index(name='Total_Tiendas')
 df_estado = df_estado.merge(tiendas_por_estado, on='ESTADO', how='left')
 
@@ -200,37 +179,58 @@ mapeo_estados = {
 df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 
 # ============================================
-# IDENTIFICAR PRECIOS CRÍTICOS (los más bajos)
+# FUNCIÓN PARA DETERMINAR COLOR DE TEXTO
+# ============================================
+def get_text_color(value, min_val, max_val):
+    """
+    Determina si el texto debe ser blanco o negro basado en el valor
+    respecto al rango de la paleta Blues
+    """
+    # Normalizar el valor entre 0 y 1
+    if max_val == min_val:
+        return 'white'  # Si todos son iguales
+    
+    normalized = (value - min_val) / (max_val - min_val)
+    
+    # Para la paleta 'Blues', el color es más oscuro cuando normalized > 0.6
+    # Por lo tanto, usamos blanco para valores > 0.6 (fondos oscuros)
+    if normalized > 0.6:
+        return 'white'  # Texto blanco para fondos oscuros
+    else:
+        return 'black'  # Texto negro para fondos claros
+
+# ============================================
+# IDENTIFICAR PRECIOS CRÍTICOS
 # ============================================
 precio_minimo_global = df_estado['Volt_minimo'].min()
 precio_maximo_global = df_estado['Volt_minimo'].max()
 rango_precio = precio_maximo_global - precio_minimo_global
 
-# Un precio es crítico si está en el 25% inferior
 umbral_critico = precio_minimo_global + (rango_precio * 0.25)
 df_estado['Es_Critico'] = df_estado['Volt_minimo'] <= umbral_critico
 
 # ============================================
-# CONFIGURACIÓN DE ESTILO MEJORADO
+# CREAR TEXTO CON COLOR DINÁMICO
 # ============================================
-# Texto con mejor contraste - NEGRO para mejor visibilidad
-TEXTO_TAMAÑO = 11
-TEXTO_COLOR = 'black'  # <--- CAMBIADO A NEGRO PARA MEJOR CONTRASTE
+# Calcular color de texto para cada estado
+df_estado['Color_Texto'] = df_estado['Volt_minimo'].apply(
+    lambda x: get_text_color(x, precio_minimo_global, precio_maximo_global)
+)
 
-# Crear texto para mostrar SOLO el precio
+# Crear texto para mostrar en el mapa
 df_estado['Texto_Mapa'] = df_estado.apply(
     lambda row: f"<b>${row['Volt_minimo']:,.2f}</b>" + 
                 (" 🔴" if row['Es_Critico'] else ""),
     axis=1
 )
 
-# Crear texto para hover con indicador de precio crítico
+# Crear hover
 df_estado['Hover_Texto'] = df_estado.apply(
     lambda row: f"<b>{row['Estado_Mapa']}</b><br>" +
                 f"🏢 Grupo: {row['Grupo']}<br>" +
                 f"💰 Precio: <b>${row['Volt_minimo']:,.2f}</b><br>" +
                 f"📊 Tiendas: {row['Total_Tiendas']}<br>" +
-                ("🔴 <b>PRECIO CRÍTICO - OFERTA EXCEPCIONAL</b>" if row['Es_Critico'] else ""),
+                ("🔴 <b>¡PRECIO CRÍTICO! OFERTA EXCEPCIONAL</b>" if row['Es_Critico'] else ""),
     axis=1
 )
 
@@ -266,16 +266,16 @@ with col5:
 
 st.markdown("---")
 
-# --- CREAR MAPA CON ESTILO BLUES Y MEJOR CONTRASTE ---
+# --- CREAR MAPA CON ESTILO BLUES ---
 st.subheader("📍 Mapa de Precios Mínimos por Estado")
 
-# Paleta Blues con mejor contraste
+# Paleta Blues
 COLOR_SCALE = 'Blues'
 
 # Crear figura con go.Figure
 fig = go.Figure()
 
-# 1. Agregar el mapa coropleto con estilo Blues
+# 1. Agregar el mapa coropleto
 fig.add_trace(go.Choropleth(
     geojson=geojson_data,
     locations=df_estado['Estado_Mapa'],
@@ -305,7 +305,7 @@ fig.add_trace(go.Choropleth(
     showscale=True
 ))
 
-# 2. Calcular centroides manualmente
+# 2. Calcular centroides
 def get_centroid(feature):
     try:
         if feature['geometry']['type'] == 'Polygon':
@@ -331,30 +331,31 @@ for feature in geojson_data['features']:
     if cent[0] is not None:
         centroides[name] = cent
 
-# Añadir coordenadas al dataframe
 df_estado['lon'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[0])
 df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[1])
 
-# Filtrar estados con datos
 df_con_coords = df_estado.dropna(subset=['lon', 'lat'])
 
-# 3. Agregar etiquetas de precio con TEXTO NEGRO para mejor contraste
-fig.add_trace(go.Scattergeo(
-    lon=df_con_coords['lon'],
-    lat=df_con_coords['lat'],
-    mode='text',
-    text=df_con_coords['Texto_Mapa'],
-    textfont=dict(
-        size=TEXTO_TAMAÑO,
-        color=TEXTO_COLOR,  # <--- NEGRO para mejor visibilidad
-        family='Arial, sans-serif'
-    ),
-    textposition='middle center',
-    hoverinfo='skip',
-    showlegend=False
-))
+# 3. Agregar etiquetas de precio con color DINÁMICO (blanco o negro según fondo)
+# CREAR UNA ETIQUETA POR CADA ESTADO CON SU COLOR ESPECÍFICO
+for _, row in df_con_coords.iterrows():
+    fig.add_trace(go.Scattergeo(
+        lon=[row['lon']],
+        lat=[row['lat']],
+        mode='text',
+        text=[row['Texto_Mapa']],
+        textfont=dict(
+            size=11,
+            color=row['Color_Texto'],  # <--- COLOR DINÁMICO POR ESTADO
+            family='Arial, sans-serif',
+            weight='bold'
+        ),
+        textposition='middle center',
+        hoverinfo='skip',
+        showlegend=False
+    ))
 
-# 4. Agregar marcadores para precios críticos (círculos rojos)
+# 4. Agregar marcadores para precios críticos
 df_criticos = df_con_coords[df_con_coords['Es_Critico']]
 if not df_criticos.empty:
     fig.add_trace(go.Scattergeo(
@@ -362,10 +363,10 @@ if not df_criticos.empty:
         lat=df_criticos['lat'],
         mode='markers',
         marker=dict(
-            size=20,
+            size=25,
             color='red',
             symbol='circle',
-            opacity=0.3,
+            opacity=0.25,
             line=dict(width=2, color='darkred')
         ),
         hoverinfo='skip',
@@ -373,7 +374,7 @@ if not df_criticos.empty:
         name='Precios críticos'
     ))
 
-# Configurar el layout con mejor estética
+# Configurar el layout
 fig.update_geos(
     fitbounds="locations",
     visible=False,
@@ -388,7 +389,6 @@ fig.update_geos(
     showframe=False
 )
 
-# Agregar créditos como en la imagen
 fig.update_layout(
     margin={"r":30, "t":30, "l":0, "b":30},
     height=750,
@@ -420,22 +420,21 @@ fig.update_layout(
     ]
 )
 
-# Mostrar el mapa
 st.plotly_chart(fig, use_container_width=True)
 
-# --- TABLA DE DATOS CON PRECIOS CRÍTICOS DESTACADOS ---
+# --- TABLA DE DATOS ---
 st.subheader("📊 Detalle por Estado")
 
-# Crear tabla con mejor formato
-df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico']].copy()
-df_tabla.columns = ['Estado', 'Grupo con mejor precio', 'Precio Mínimo', 'Total Tiendas', 'Precio Crítico']
+# Crear tabla
+df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico', 'Color_Texto']].copy()
+df_tabla.columns = ['Estado', 'Grupo con mejor precio', 'Precio Mínimo', 'Total Tiendas', 'Precio Crítico', 'Color_Texto']
 df_tabla = df_tabla.sort_values('Precio Mínimo', ascending=True)
 
 # Formatear precios
 df_tabla['Precio Mínimo'] = df_tabla['Precio Mínimo'].apply(lambda x: f"${x:,.2f}")
 df_tabla['Precio Crítico'] = df_tabla['Precio Crítico'].apply(lambda x: '🔴 Sí' if x else '')
 
-# Función para colorear filas según precio
+# Función para colorear filas
 def color_rows(row):
     if row['Precio Crítico'] == '🔴 Sí':
         return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row)
@@ -444,116 +443,84 @@ def color_rows(row):
 styled_df = df_tabla.style.apply(color_rows, axis=1)
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-# --- GRÁFICO DE BARRAS CON DESTAQUE DE CRÍTICOS ---
+# --- GRÁFICO DE BARRAS ---
 st.subheader("📈 Distribución de Precios por Estado")
 
-# Crear gráfico de barras
 df_bar = df_tabla.copy()
 df_bar['Precio Numérico'] = df_bar['Precio Mínimo'].str.replace('$', '').str.replace(',', '').astype(float)
 df_bar = df_bar.sort_values('Precio Numérico', ascending=True)
 
-# Colores personalizados: rojo para críticos, azul para el resto
-colors = ['#ff6b6b' if row['Precio Crítico'] == '🔴 Sí' else '#3182bd' for _, row in df_bar.iterrows()]
+# Crear colores: rojo para críticos, azul para el resto
+bar_colors = ['#ff6b6b' if row['Precio Crítico'] == '🔴 Sí' else '#3182bd' for _, row in df_bar.iterrows()]
 
-fig_bar = px.bar(
-    df_bar,
-    x='Estado',
-    y='Precio Numérico',
-    color='Precio Numérico',
-    color_continuous_scale='Blues',
-    title="Precios Mínimos por Estado - De mejor a peor oferta",
-    labels={'y': 'Precio Mínimo ($)', 'x': 'Estado'},
-    text='Grupo con mejor precio',
-    height=500
-)
+fig_bar = go.Figure()
 
-# Cambiar color de barras críticas a rojo
-fig_bar.update_traces(
+fig_bar.add_trace(go.Bar(
+    x=df_bar['Estado'],
+    y=df_bar['Precio Numérico'],
+    text=df_bar['Grupo con mejor precio'],
     textposition='outside',
-    textfont=dict(size=10, family="Arial"),
+    textfont=dict(size=10),
+    marker_color=bar_colors,
     marker_line_color='white',
-    marker_line_width=1.5
-)
-
-# Añadir anotaciones para precios críticos
-for i, row in df_bar.iterrows():
-    if row['Precio Crítico'] == '🔴 Sí':
-        fig_bar.add_annotation(
-            x=row['Estado'],
-            y=row['Precio Numérico'],
-            text="🔴 CRÍTICO",
-            showarrow=True,
-            arrowhead=2,
-            arrowsize=1,
-            arrowwidth=2,
-            arrowcolor="#ff6b6b",
-            font=dict(size=10, color="#ff6b6b", weight='bold'),
-            ax=0,
-            ay=-30
-        )
+    marker_line_width=1.5,
+    hovertemplate="<b>%{x}</b><br>" +
+                  "Precio: $%{y:,.2f}<br>" +
+                  "Grupo: %{text}<br>" +
+                  "<extra></extra>"
+))
 
 fig_bar.update_layout(
+    title="Precios Mínimos por Estado",
     xaxis_tickangle=-45,
+    yaxis_title="Precio Mínimo ($)",
+    xaxis_title="Estado",
     showlegend=False,
     plot_bgcolor='white',
     paper_bgcolor='white',
     font=dict(family="Arial", size=12, color="#2c3e50"),
     title_font=dict(size=16, color="#1a1a2e"),
-    coloraxis_colorbar=dict(
-        title="Precio",
-        tickprefix="$",
-        tickformat=",.0f"
-    ),
+    height=500,
     margin=dict(l=50, r=50, t=80, b=100)
 )
 
 st.plotly_chart(fig_bar, use_container_width=True)
 
-# --- INSIGHTS Y STORYTELLING MEJORADO ---
+# --- INSIGHTS Y STORYTELLING ---
 st.markdown("---")
 st.subheader("📖 Insights y Storytelling")
 
-# Generar insights automáticos
-precio_min = df_estado['Volt_minimo'].min()
-precio_max = df_estado['Volt_minimo'].max()
-estado_min = df_estado[df_estado['Volt_minimo'] == precio_min]['Estado_Mapa'].iloc[0]
-estado_max = df_estado[df_estado['Volt_minimo'] == precio_max]['Estado_Mapa'].iloc[0]
-grupo_min = df_estado[df_estado['Volt_minimo'] == precio_min]['Grupo'].iloc[0]
-grupo_max = df_estado[df_estado['Volt_minimo'] == precio_max]['Grupo'].iloc[0]
-
-# Contar críticos por región
-criticos_por_region = df_estado[df_estado['Es_Critico']].groupby('REGION').size() if 'REGION' in df_estado.columns else {}
+# Calcular percentiles
+percentil_25 = df_estado['Volt_minimo'].quantile(0.25)
+percentil_75 = df_estado['Volt_minimo'].quantile(0.75)
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown(f"""
-    ### 🔴 Precios Críticos (Ofertas Excepcionales)
+    ### 🎯 Precios Críticos Identificados
     
-    **{estado_min}** ofrece el precio más bajo con **${precio_min:,.2f}**
+    **Umbral de precio crítico:** ${umbral_critico:,.2f}
     
-    *Clave:* {grupo_min} es el proveedor con la mejor oferta.
-    
-    **Total de precios críticos:** {total_criticos} estados
+    **Estados con precios críticos:**
     """)
     
-    if criticos_por_region:
-        st.markdown("**Distribución por región:**")
-        for region, count in criticos_por_region.items():
-            st.markdown(f"- {region}: {count} estado(s)")
+    for _, row in df_estado[df_estado['Es_Critico']].iterrows():
+        st.markdown(f"- **{row['Estado_Mapa']}**: ${row['Volt_minimo']:,.2f} ({row['Grupo']})")
 
 with col2:
     st.markdown(f"""
-    ### 📊 Análisis de Oportunidades
+    ### 📊 Análisis Estadístico
     
-    **{estado_max}** tiene el precio más alto con **${precio_max:,.2f}**
+    - **Precio más bajo:** ${precio_minimo_global:,.2f}
+    - **Precio más alto:** ${precio_maximo_global:,.2f}
+    - **Rango:** ${rango_precio:,.2f}
+    - **Percentil 25:** ${percentil_25:,.2f}
+    - **Percentil 75:** ${percentil_75:,.2f}
     
-    *Diferencia:* ${precio_max - precio_min:,.2f} ({((precio_max - precio_min) / precio_min * 100):.0f}% más caro)
-    
-    **Recomendación:**
-    - ✅ Aprovechar precios críticos en {estado_min}
-    - 📈 Negociar mejoras en {estado_max}
-    - 🎯 Enfocar estrategia en {total_criticos} estados con mejores precios
+    **Oportunidades:**
+    - 🟢 {df_estado[df_estado['Es_Critico']].shape[0]} estados con ofertas excepcionales
+    - 🟡 {df_estado[~df_estado['Es_Critico']].shape[0]} estados con precios estándar
     """)
 
 # --- EXPORTAR DATOS ---
