@@ -43,14 +43,6 @@ st.markdown('<div class="main-title">🗺️ Análisis de Precios y Trazabilidad
 # FUNCIONES DE CARGA DE DATOS
 # ============================================
 @st.cache_data
-def obtener_hash_archivo():
-    try:
-        with open("datos_tiendas.csv", "rb") as f:
-            return hashlib.md5(f.read()).hexdigest()
-    except:
-        return None
-
-@st.cache_data
 def cargar_datos():
     try:
         df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
@@ -216,7 +208,7 @@ st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
 tab1, tab2 = st.tabs(["📍 Mapa de Precios", "🔗 Trazabilidad de Clientes"])
 
 # ============================================
-# TAB 1: MAPA DE PRECIOS (CÓDIGO EXISTENTE)
+# TAB 1: MAPA DE PRECIOS
 # ============================================
 with tab1:
     # --- IDENTIFICAR PRECIO MÍNIMO POR ESTADO ---
@@ -510,7 +502,7 @@ with tab1:
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # ============================================
-# TAB 2: TRAZABILIDAD DE CLIENTES (CORREGIDO)
+# TAB 2: TRAZABILIDAD DE CLIENTES (USANDO PX.SCATTER_MAPBOX)
 # ============================================
 with tab2:
     st.markdown("### 🔗 Trazabilidad de Clientes")
@@ -563,58 +555,57 @@ with tab2:
     
     st.markdown("---")
     
-    # --- MAPA DE TRAZABILIDAD USANDO SCATTERMAP (CORREGIDO) ---
+    # --- MAPA DE TRAZABILIDAD USANDO PX.SCATTER_MAPBOX ---
     st.subheader("📍 Mapa de Conexiones entre Clientes")
     
     df_clientes = df_filtrado.dropna(subset=['Longitud', 'Latitud'])
     
-    # Colores según precio
-    colores_clientes = []
-    for precio in df_clientes['VOLT']:
-        if precio <= df_clientes['VOLT'].quantile(0.33):
-            colores_clientes.append('#2ECC40')
-        elif precio <= df_clientes['VOLT'].quantile(0.66):
-            colores_clientes.append('#FFD700')
-        else:
-            colores_clientes.append('#FF6B6B')
+    # Crear columna de color según precio
+    df_clientes['Color_Price'] = df_clientes['VOLT'].apply(
+        lambda x: 'Bajo' if x <= df_clientes['VOLT'].quantile(0.33) 
+        else 'Medio' if x <= df_clientes['VOLT'].quantile(0.66) 
+        else 'Alto'
+    )
     
-    # Crear figura con Scattermapbox
-    fig_trazabilidad = go.Figure()
+    # Mapa de clientes con px.scatter_mapbox
+    fig_trazabilidad = px.scatter_mapbox(
+        df_clientes,
+        lat="Latitud",
+        lon="Longitud",
+        color="Color_Price",
+        color_discrete_map={
+            'Bajo': '#2ECC40',
+            'Medio': '#FFD700',
+            'Alto': '#FF6B6B'
+        },
+        hover_data={
+            'CIUDAD': True,
+            'GRUPO': True,
+            'VOLT': True,
+            'ESTADO': True,
+            'Folio Emetrix': True,
+            'Color_Price': False
+        },
+        text="GRUPO" if mostrar_etiquetas else None,
+        title="Clientes y sus conexiones",
+        zoom=5,
+        height=700,
+        center={
+            "lat": df_clientes['Latitud'].mean() if not df_clientes.empty else 23.6345,
+            "lon": df_clientes['Longitud'].mean() if not df_clientes.empty else -102.5528
+        }
+    )
     
-    # 1. Puntos de clientes
-    fig_trazabilidad.add_trace(go.Scattermapbox(
-        lon=df_clientes['Longitud'].tolist(),
-        lat=df_clientes['Latitud'].tolist(),
-        mode='markers+text' if mostrar_etiquetas else 'markers',
-        text=df_clientes['GRUPO'].tolist() if mostrar_etiquetas else None,
-        textposition='top center',
-        textfont=dict(size=9, color='black'),
-        marker=dict(
-            size=14,
-            color=colores_clientes,
-            opacity=0.8,
-            line=dict(width=1, color='white')
-        ),
-        hovertemplate="<b>%{customdata[0]}</b><br>" +
-                      "🏢 Grupo: %{customdata[1]}<br>" +
-                      "💰 Precio: <b>$%{customdata[2]:,.2f}</b><br>" +
-                      "📍 Estado: %{customdata[3]}<br>" +
-                      "📊 Folio: %{customdata[4]}<br>" +
-                      "<extra></extra>",
-        customdata=df_clientes[['CIUDAD', 'GRUPO', 'VOLT', 'ESTADO', 'Folio Emetrix']].values.tolist(),
-        name='Clientes'
-    ))
-    
-    # 2. Líneas de conexión
+    # Agregar líneas de conexión
     if mostrar_lineas:
         conexiones_unicas = df_conexiones.drop_duplicates(subset=['folio_origen', 'folio_destino'])
         
         for _, row in conexiones_unicas.iterrows():
             diff_precio = row['precio_origen'] - row['precio_destino']
             if diff_precio > 5:
-                color_linea = 'rgba(46, 204, 64, 0.5)'
+                color_linea = 'rgba(46, 204, 64, 0.6)'
             elif diff_precio < -5:
-                color_linea = 'rgba(255, 107, 107, 0.5)'
+                color_linea = 'rgba(255, 107, 107, 0.6)'
             else:
                 color_linea = 'rgba(52, 152, 219, 0.4)'
             
@@ -622,45 +613,28 @@ with tab2:
                 lon=[row['longitud_origen'], row['longitud_destino']],
                 lat=[row['latitud_origen'], row['latitud_destino']],
                 mode='lines',
-                line=dict(
-                    width=2,
-                    color=color_linea
-                ),
-                hovertemplate="<b>🔗 Conexión</b><br>" +
-                              "📏 Distancia: <b>%{customdata[0]:.2f} km</b><br>" +
-                              "🏢 Origen: %{customdata[1]}<br>" +
-                              "🏢 Destino: %{customdata[2]}<br>" +
-                              "💰 Precio Origen: $%{customdata[3]:,.2f}<br>" +
-                              "💰 Precio Destino: $%{customdata[4]:,.2f}<br>" +
-                              "💱 Diferencia: $%{customdata[5]:,.2f}<br>" +
-                              "<extra></extra>",
-                customdata=[[
-                    row['distancia_km'],
-                    row['cliente_origen'],
-                    row['cliente_destino'],
-                    row['precio_origen'],
-                    row['precio_destino'],
-                    row['precio_origen'] - row['precio_destino']
-                ]],
+                line=dict(width=2, color=color_linea),
+                hoverinfo='text',
+                text=f"🔗 Conexión<br>📏 Distancia: {row['distancia_km']:.2f} km<br>🏢 {row['cliente_origen']} → {row['cliente_destino']}<br>💰 ${row['precio_origen']:.2f} → ${row['precio_destino']:.2f}<br>💱 Diferencia: ${row['precio_origen'] - row['precio_destino']:.2f}",
                 showlegend=False
             ))
     
-    # Configurar mapa
+    # Actualizar layout
     fig_trazabilidad.update_layout(
-        mapbox=dict(
-            style="carto-positron",
-            center=dict(
-                lat=df_clientes['Latitud'].mean() if not df_clientes.empty else 23.6345,
-                lon=df_clientes['Longitud'].mean() if not df_clientes.empty else -102.5528
-            ),
-            zoom=5
-        ),
+        mapbox_style="carto-positron",
         margin={"r":0, "t":30, "l":0, "b":0},
-        height=700,
         hoverlabel=dict(
             bgcolor="white",
             font_size=12,
             font_family="Arial"
+        ),
+        legend=dict(
+            title="Precio",
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
         )
     )
     
@@ -679,7 +653,6 @@ with tab2:
     df_tabla_conexiones['Precio Origen'] = df_tabla_conexiones['Precio Origen'].apply(lambda x: f"${x:,.2f}")
     df_tabla_conexiones['Precio Destino'] = df_tabla_conexiones['Precio Destino'].apply(lambda x: f"${x:,.2f}")
     
-    # Calcular diferencia
     precio_origen_num = df_tabla_conexiones['Precio Origen'].str.replace('$', '').str.replace(',', '').astype(float)
     precio_destino_num = df_tabla_conexiones['Precio Destino'].str.replace('$', '').str.replace(',', '').astype(float)
     df_tabla_conexiones['Diferencia'] = (precio_origen_num - precio_destino_num).apply(lambda x: f"${x:,.2f}")
