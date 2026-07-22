@@ -191,8 +191,15 @@ mapeo_estados = {
 
 df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 
-# Crear texto para mostrar SOLO el precio (sin estado)
-df_estado['Texto_Mapa'] = df_estado['Volt_minimo'].apply(lambda x: f"<b>${x:,.2f}</b>")
+# ============================================
+# CONFIGURACIÓN DE ESTILO BLUES (Estilo de tu jefe)
+# ============================================
+# Texto más pequeño como en la imagen
+TEXTO_TAMAÑO = 11  # Tamaño del texto en el mapa
+TEXTO_COLOR = 'white'  # Color del texto en el mapa
+
+# Crear texto para mostrar SOLO el precio (más pequeño)
+df_estado['Texto_Mapa'] = df_estado['Volt_minimo'].apply(lambda x: f"${x:,.2f}")
 
 # Crear texto para hover (con toda la información)
 df_estado['Hover_Texto'] = df_estado.apply(
@@ -231,37 +238,33 @@ with col4:
 
 st.markdown("---")
 
-# --- CREAR MAPA CON PALETA DE COLORES PROFESIONAL ---
+# --- CREAR MAPA CON ESTILO BLUES ---
 st.subheader("📍 Mapa de Precios Mínimos por Estado")
 
-# Paleta de colores profesional (gradiente de azul a rojo para storytelling)
-# Usamos una paleta que comunica claramente: VERDE = Buen precio, ROJO = Precio alto
-colorscale = [
-    [0, "#006837"],    # Verde oscuro (mejor precio)
-    [0.2, "#2ca02c"],  # Verde
-    [0.4, "#ffed6f"],  # Amarillo
-    [0.6, "#ff9900"],  # Naranja
-    [0.8, "#d62728"],  # Rojo
-    [1, "#8b0000"]     # Rojo oscuro (peor precio)
-]
+# ============================================
+# PALETA BLUES (¡ESTILO DE TU JEFE!)
+# ============================================
+# Usamos la paleta 'Blues' de Plotly que es la que aparece en la imagen
+# Esta escala va de azul claro a azul oscuro
+COLOR_SCALE = 'Blues'  # <--- ¡ESTA ES LA PALETA QUE LE GUSTA A TU JEFE!
 
 # Crear figura con go.Figure
 fig = go.Figure()
 
-# 1. Agregar el mapa coropleto
+# 1. Agregar el mapa coropleto con estilo Blues
 fig.add_trace(go.Choropleth(
     geojson=geojson_data,
     locations=df_estado['Estado_Mapa'],
     z=df_estado['Volt_minimo'],
     featureidkey="properties.name",
-    colorscale=colorscale,
+    colorscale=COLOR_SCALE,  # <--- USANDO LA PALETA BLUES
     zmin=df_estado['Volt_minimo'].min(),
     zmax=df_estado['Volt_minimo'].max(),
     marker_line_width=1.5,
     marker_line_color='white',
     colorbar=dict(
         title=dict(
-            text="Precio Mínimo ($)",
+            text="Volt Mínimo ($)",  # <--- Título como en la imagen
             side="right",
             font=dict(size=14, family="Arial", color="#2c3e50")
         ),
@@ -311,17 +314,16 @@ df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (Non
 # Filtrar estados con datos
 df_con_coords = df_estado.dropna(subset=['lon', 'lat'])
 
-# 3. Agregar etiquetas de precio con mejor visibilidad
+# 3. Agregar etiquetas de precio con tamaño más pequeño
 fig.add_trace(go.Scattergeo(
     lon=df_con_coords['lon'],
     lat=df_con_coords['lat'],
     mode='text',
     text=df_con_coords['Texto_Mapa'],
     textfont=dict(
-        size=13,
-        color='white',
-        family='Arial, sans-serif',
-        weight='bold'
+        size=TEXTO_TAMAÑO,  # <--- Tamaño más pequeño como en la imagen
+        color=TEXTO_COLOR,   # <--- Color blanco
+        family='Arial, sans-serif'
     ),
     textposition='middle center',
     hoverinfo='skip',
@@ -343,8 +345,9 @@ fig.update_geos(
     showframe=False
 )
 
+# Agregar créditos como en la imagen
 fig.update_layout(
-    margin={"r":30, "t":30, "l":0, "b":0},
+    margin={"r":30, "t":30, "l":0, "b":30},
     height=750,
     geo=dict(
         projection_type='mercator',
@@ -360,7 +363,19 @@ fig.update_layout(
         bordercolor="#2c3e50"
     ),
     plot_bgcolor="white",
-    paper_bgcolor="white"
+    paper_bgcolor="white",
+    # Créditos del mapa como en la imagen
+    annotations=[
+        dict(
+            x=0.5,
+            y=-0.08,
+            xref='paper',
+            yref='paper',
+            text='Con tecnología de Bing © GeoNames, Microsoft, TomTom',
+            showarrow=False,
+            font=dict(size=10, color='#666666')
+        )
+    ]
 )
 
 # Mostrar el mapa
@@ -377,29 +392,29 @@ df_tabla = df_tabla.sort_values('Precio Mínimo', ascending=True)
 # Formatear precios
 df_tabla['Precio Mínimo'] = df_tabla['Precio Mínimo'].apply(lambda x: f"${x:,.2f}")
 
-# Función para colorear filas según precio
+# Función para colorear filas según precio (con colores más suaves)
 def color_rows(row):
     precio_limpio = float(row['Precio Mínimo'].replace('$', '').replace(',', ''))
     precio_min = df_estado['Volt_minimo'].min()
     precio_max = df_estado['Volt_minimo'].max()
     
     if precio_limpio == precio_min:
-        return ['background-color: #006837; color: white; font-weight: bold'] * len(row)
+        return ['background-color: #cce5ff; font-weight: bold'] * len(row)  # Azul claro
     elif precio_limpio == precio_max:
-        return ['background-color: #8b0000; color: white; font-weight: bold'] * len(row)
+        return ['background-color: #ffcccc; font-weight: bold'] * len(row)  # Rojo claro
     elif precio_limpio <= (precio_min + (precio_max - precio_min) * 0.3):
-        return ['background-color: #d4edda'] * len(row)
+        return ['background-color: #e3f2fd'] * len(row)  # Azul más claro
     elif precio_limpio >= (precio_max - (precio_max - precio_min) * 0.3):
-        return ['background-color: #f8d7da'] * len(row)
+        return ['background-color: #ffe0e0'] * len(row)  # Rojo más claro
     return [''] * len(row)
 
 styled_df = df_tabla.style.apply(color_rows, axis=1)
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-# --- GRÁFICO DE BARRAS PARA STORYTELLING ---
-st.subheader("📈 Distribución de Precios - Storytelling")
+# --- GRÁFICO DE BARRAS CON ESTILO BLUES ---
+st.subheader("📈 Distribución de Precios por Estado")
 
-# Crear gráfico de barras con mejor visualización
+# Crear gráfico de barras
 df_bar = df_tabla.copy()
 df_bar['Precio Numérico'] = df_bar['Precio Mínimo'].str.replace('$', '').str.replace(',', '').astype(float)
 df_bar = df_bar.sort_values('Precio Numérico', ascending=True)
@@ -409,7 +424,7 @@ fig_bar = px.bar(
     x='Estado',
     y='Precio Numérico',
     color='Precio Numérico',
-    color_continuous_scale=colorscale,
+    color_continuous_scale='Blues',  # <--- Misma paleta Blues
     title="Precios Mínimos por Estado - De mejor a peor oferta",
     labels={'y': 'Precio Mínimo ($)', 'x': 'Estado'},
     text='Grupo con mejor precio',
