@@ -110,9 +110,9 @@ df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 # Crear columna para formato de moneda en hover
 df_estado['Volt_minimo_formato'] = df_estado['Volt_minimo'].apply(lambda x: f"${x:,.2f}")
 
-# Crear texto para mostrar en el mapa (para usar con texttemplate)
+# Crear texto para mostrar en el mapa
 df_estado['Texto_Mapa'] = df_estado.apply(
-    lambda row: f"<b>{row['Estado_Mapa']}</b><br>{row['Cliente']}<br>${row['Volt_minimo']:,.2f}", 
+    lambda row: f"{row['Cliente']}<br>${row['Volt_minimo']:,.2f}", 
     axis=1
 )
 
@@ -133,38 +133,77 @@ try:
 except Exception as e:
     st.warning(f"⚠️ No se pudieron verificar los nombres de estados: {e}")
 
+# --- COORDENADAS PREDEFINIDAS PARA CENTROIDES DE ESTADOS ---
+# (Coordenadas aproximadas del centro de cada estado)
+centroides_estados = {
+    'Aguascalientes': (-102.3, 21.9),
+    'Baja California': (-115.0, 30.0),
+    'Baja California Sur': (-112.0, 25.0),
+    'Campeche': (-90.5, 19.8),
+    'Chiapas': (-92.6, 16.5),
+    'Chihuahua': (-106.0, 28.5),
+    'Ciudad de México': (-99.1, 19.4),
+    'Coahuila de Zaragoza': (-101.5, 26.0),
+    'Colima': (-103.7, 19.2),
+    'Durango': (-104.5, 24.5),
+    'Guanajuato': (-101.2, 21.0),
+    'Guerrero': (-99.5, 17.5),
+    'Hidalgo': (-98.7, 20.5),
+    'Jalisco': (-103.5, 20.5),
+    'México': (-99.5, 19.5),
+    'Michoacán': (-101.8, 19.5),
+    'Morelos': (-99.2, 18.8),
+    'Nayarit': (-104.8, 21.5),
+    'Nuevo León': (-100.0, 25.5),
+    'Oaxaca': (-96.5, 17.0),
+    'Puebla': (-98.0, 19.0),
+    'Querétaro': (-100.3, 20.5),
+    'Quintana Roo': (-88.0, 19.5),
+    'San Luis Potosí': (-100.8, 22.5),
+    'Sinaloa': (-107.5, 25.0),
+    'Sonora': (-111.0, 29.0),
+    'Tabasco': (-92.5, 18.0),
+    'Tamaulipas': (-99.0, 24.0),
+    'Tlaxcala': (-98.2, 19.3),
+    'Veracruz': (-96.5, 19.0),
+    'Yucatán': (-89.0, 20.5),
+    'Zacatecas': (-103.0, 23.5)
+}
+
+# Añadir coordenadas al dataframe
+df_estado['lon'] = df_estado['Estado_Mapa'].map(lambda x: centroides_estados.get(x, (None, None))[0])
+df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides_estados.get(x, (None, None))[1])
+
 # --- MAPA CON NOMBRE DE CLIENTE Y PRECIO ---
 st.subheader("📍 Mapa de Precios Mínimos por Estado")
 
-# Crear mapa con mejor visualización
+# Crear el coropleto
 fig = px.choropleth(
     df_estado,
     geojson=geojson_data,
     locations='Estado_Mapa',
     color='Volt_minimo',
     featureidkey="properties.name",
-    color_continuous_scale="RdYlGn_r",  # Rojo = caro, Verde = barato (invertido)
+    color_continuous_scale="RdYlGn_r",
     range_color=[df_estado['Volt_minimo'].min(), df_estado['Volt_minimo'].max()],
     labels={'Volt_minimo': 'Precio Mínimo ($)'},
     hover_data={
         'Estado_Mapa': True,
         'Cliente': True,
         'Volt_minimo': True,
-        'Volt_minimo_formato': True,
-        'Total_Tiendas': True,
-        'Texto_Mapa': False
+        'Total_Tiendas': True
     },
     template='plotly_white'
 )
 
-# Personalizar hover con información completa
+# Personalizar hover
 fig.update_traces(
     hovertemplate="<b>%{customdata[0]}</b><br>" +
                   "🏪 Cliente: <b>%{customdata[1]}</b><br>" +
                   "💰 Precio Mínimo: <b>$%{customdata[2]:,.2f}</b><br>" +
-                  "📊 Total Tiendas: %{customdata[4]}<br>" +
+                  "📊 Total Tiendas: %{customdata[3]}<br>" +
                   "<extra></extra>",
-    customdata=df_estado[['Estado_Mapa', 'Cliente', 'Volt_minimo', 'Volt_minimo_formato', 'Total_Tiendas']].values
+    customdata=df_estado[['Estado_Mapa', 'Cliente', 'Volt_minimo', 'Total_Tiendas']].values
 )
 
 # Ajustar geografía
@@ -201,50 +240,40 @@ fig.update_layout(
     )
 )
 
-# Agregar anotaciones personalizadas (texto en el mapa)
-# Nota: Plotly choropleth no soporta texto directamente en el mapa,
-# así que usamos una capa de scatter para mostrar las etiquetas
-
-# Crear un scatter plot con las etiquetas
-# Primero obtenemos las coordenadas de los centroides de los estados
-from shapely.geometry import shape
-from shapely.ops import centroid
-
-def get_centroid(feature):
-    """Obtener el centroide de un polígono"""
-    geom = shape(feature['geometry'])
-    return centroid(geom)
-
-# Crear diccionario de centroides
-centroides = {}
-for feature in geojson_data['features']:
-    name = feature['properties']['name']
-    cent = get_centroid(feature)
-    centroides[name] = (cent.x, cent.y)
-
-# Añadir coordenadas al dataframe
-df_estado['lon'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[0])
-df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[1])
-
-# Crear scatter plot para etiquetas
+# Agregar etiquetas con scatter
+# Crear un scatter plot para las etiquetas
 fig_scatter = px.scatter_mapbox(
     df_estado.dropna(subset=['lon', 'lat']),
     lat='lat',
     lon='lon',
     text='Texto_Mapa',
     hover_name='Estado_Mapa',
-    hover_data={'Cliente': True, 'Volt_minimo': True},
+    hover_data={
+        'Cliente': True, 
+        'Volt_minimo': True,
+        'Total_Tiendas': True
+    },
     color_discrete_sequence=['black'],
     zoom=4,
     height=700
 )
 
-# Actualizar el layout del scatter
 fig_scatter.update_traces(
     textposition='middle center',
-    textfont=dict(size=10, color='black', family='Arial, sans-serif'),
-    marker=dict(size=0),  # Ocultar marcadores
-    showlegend=False
+    textfont=dict(
+        size=9, 
+        color='black', 
+        family='Arial, sans-serif',
+        weight='bold'
+    ),
+    marker=dict(size=1, opacity=0),  # Marcadores casi invisibles
+    showlegend=False,
+    hovertemplate="<b>%{hovertext}</b><br>" +
+                  "🏪 Cliente: <b>%{customdata[0]}</b><br>" +
+                  "💰 Precio: <b>$%{customdata[1]:,.2f}</b><br>" +
+                  "📊 Tiendas: %{customdata[2]}<br>" +
+                  "<extra></extra>",
+    customdata=df_estado.dropna(subset=['lon', 'lat'])[['Cliente', 'Volt_minimo', 'Total_Tiendas']].values
 )
 
 fig_scatter.update_layout(
@@ -254,10 +283,13 @@ fig_scatter.update_layout(
         zoom=4
     ),
     margin={"r":0, "t":0, "l":0, "b":0},
-    height=700
+    height=700,
+    showlegend=False
 )
 
-# Mostrar el mapa
+# Combinar ambos gráficos
+# Mostrar el coropleto y luego el scatter con las etiquetas encima
+st.plotly_chart(fig, use_container_width=True)
 st.plotly_chart(fig_scatter, use_container_width=True)
 
 # --- SECCIÓN DE ANÁLISIS ---
