@@ -64,8 +64,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-title">🗺️ Análisis de Precios y Trazabilidad</div>', unsafe_allow_html=True)
-
 # ============================================
 # ESTILOS Y CONFIGURACIÓN
 # ============================================
