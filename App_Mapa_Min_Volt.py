@@ -761,3 +761,46 @@ with tab2:
         return [''] * len(row)
     
     styled_conexiones = df_tabla_conexiones.style.apply(color_conexiones, axis=1)
+    st.dataframe(styled_conexiones, use_container_width=True, hide_index=True)
+    
+    # --- CLIENTES SIN CONEXIÓN ---
+    with st.expander("🔍 Clientes sin conexión (aislados)"):
+        folios_con_conexion = set(df_conexiones['folio_origen']).union(set(df_conexiones['folio_destino']))
+        df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con_conexion)]
+        df_aislados = df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']].copy()
+        df_aislados.columns = ['Grupo', 'Ciudad', 'Estado', 'Precio']
+        df_aislados['Precio'] = df_aislados['Precio'].apply(lambda x: f"${x:,.2f}")
+        
+        if not df_aislados.empty:
+            st.warning(f"⚠️ {len(df_aislados)} clientes sin conexiones dentro de {distancia_max} km")
+            st.dataframe(df_aislados, use_container_width=True, hide_index=True)
+        else:
+            st.success("✅ Todos los clientes tienen al menos una conexión")
+
+# ============================================
+# EXPORTAR DATOS
+# ============================================
+st.markdown("---")
+col1, col2, col3 = st.columns([1, 1, 1])
+
+with col2:
+    if 'df_conexiones' in locals() and not df_conexiones.empty:
+        csv_conexiones = df_tabla_conexiones.to_csv(index=False)
+        st.download_button(
+            label="📥 Descargar Conexiones (CSV)",
+            data=csv_conexiones,
+            file_name="conexiones_clientes.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
+
+# ============================================
+# FOOTER
+# ============================================
+st.markdown("---")
+st.markdown(
+    f"<p style='text-align: center; color: #666; font-size: 12px;'>"
+    f"Dashboard desarrollado con ❤️ | Datos actualizados al: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}"
+    f"</p>",
+    unsafe_allow_html=True
+)
