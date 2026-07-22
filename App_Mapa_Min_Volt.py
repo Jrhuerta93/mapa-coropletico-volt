@@ -34,6 +34,9 @@ st.markdown("""
         border-radius: 10px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
+    .tab-content {
+        padding: 20px 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -84,7 +87,7 @@ def cargar_geojson():
     return None
 
 # ============================================
-# FUNCIONES DE TRAZABILIDAD (SIN SCIPY)
+# FUNCIONES DE TRAZABILIDAD
 # ============================================
 def calcular_distancias_manual(df):
     """Calcula las distancias entre todos los clientes usando Haversine"""
@@ -152,7 +155,7 @@ if 'GRUPO' not in df.columns:
     df['GRUPO'] = df['Folio Emetrix']
 
 # ============================================
-# SIDEBAR - FILTROS
+# SIDEBAR - FILTROS Y ACTUALIZACIÓN
 # ============================================
 st.sidebar.markdown("### 🔄 Actualización de Datos")
 if st.sidebar.button("🔄 Recargar Datos"):
@@ -208,7 +211,7 @@ st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
 tab1, tab2 = st.tabs(["📍 Mapa de Precios", "🔗 Trazabilidad de Clientes"])
 
 # ============================================
-# TAB 1: MAPA DE PRECIOS
+# TAB 1: MAPA DE PRECIOS (VERSIÓN QUE FUNCIONA)
 # ============================================
 with tab1:
     # --- IDENTIFICAR PRECIO MÍNIMO POR ESTADO ---
@@ -315,6 +318,7 @@ with tab1:
     if geojson_data is None:
         st.error("❌ No se pudo cargar el archivo GeoJSON")
     else:
+        # --- MÉTRICAS PRINCIPALES ---
         st.markdown("### 📊 Resumen Ejecutivo")
         col1, col2, col3, col4, col5 = st.columns(5)
         
@@ -339,6 +343,8 @@ with tab1:
             st.metric("🔴 Precios críticos", total_criticos)
         
         st.markdown("---")
+        
+        # --- CREAR MAPA ---
         st.subheader("📍 Mapa de Precios Mínimos por Estado")
         
         COLOR_SCALE = 'Blues'
@@ -484,6 +490,7 @@ with tab1:
         
         st.plotly_chart(fig, use_container_width=True)
         
+        # --- TABLA DE DATOS ---
         st.subheader("📊 Detalle por Estado")
         
         df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico', 'REGIÓN']].copy()
@@ -500,9 +507,88 @@ with tab1:
         
         styled_df = df_tabla.style.apply(color_rows, axis=1)
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
+        
+        # --- GRÁFICO DE BARRAS ---
+        st.subheader("📈 Distribución de Precios por Estado")
+        
+        df_bar = df_tabla.copy()
+        df_bar['Precio Numérico'] = df_bar['Precio Mínimo'].str.replace('$', '').str.replace(',', '').astype(float)
+        df_bar = df_bar.sort_values('Precio Numérico', ascending=True)
+        
+        bar_colors = ['#ff6b6b' if row['Precio Crítico'] == '🔴 Sí' else '#3182bd' for _, row in df_bar.iterrows()]
+        
+        fig_bar = go.Figure()
+        
+        fig_bar.add_trace(go.Bar(
+            x=df_bar['Estado'],
+            y=df_bar['Precio Numérico'],
+            text=df_bar['Grupo con mejor precio'],
+            textposition='outside',
+            textfont=dict(size=10),
+            marker_color=bar_colors,
+            marker_line_color='white',
+            marker_line_width=1.5,
+            hovertemplate="<b>%{x}</b><br>" +
+                          "Precio: $%{y:,.2f}<br>" +
+                          "Grupo: %{text}<br>" +
+                          "<extra></extra>"
+        ))
+        
+        fig_bar.update_layout(
+            title="Precios Mínimos por Estado - De mejor a peor oferta",
+            xaxis_tickangle=-45,
+            yaxis_title="Precio Mínimo ($)",
+            xaxis_title="Estado",
+            showlegend=False,
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            font=dict(family="Arial", size=12, color="#2c3e50"),
+            title_font=dict(size=16, color="#1a1a2e"),
+            height=500,
+            margin=dict(l=50, r=50, t=80, b=100)
+        )
+        
+        st.plotly_chart(fig_bar, use_container_width=True)
+        
+        # --- INSIGHTS Y STORYTELLING ---
+        st.markdown("---")
+        st.subheader("📖 Insights y Storytelling")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown(f"""
+            ### 🎯 Precios Críticos Identificados
+            
+            **Umbral de precio crítico:** ${umbral_critico:,.2f}
+            
+            **Estados con precios críticos:**
+            """)
+            
+            criticos = df_estado[df_estado['Es_Critico']]
+            if not criticos.empty:
+                for _, row in criticos.iterrows():
+                    st.markdown(f"- **{row['Estado_Mapa']}**: ${row['Volt_minimo']:,.2f} ({row['Grupo']})")
+            else:
+                st.markdown("*No hay precios críticos en el rango actual*")
+        
+        with col2:
+            st.markdown(f"""
+            ### 📊 Análisis Estadístico
+            
+            - **Precio más bajo:** ${precio_minimo_global:,.2f}
+            - **Precio más alto:** ${precio_maximo_global:,.2f}
+            - **Rango:** ${rango_precio:,.2f}
+            - **Precio promedio:** ${df_estado['Volt_minimo'].mean():,.2f}
+            - **Mediana:** ${df_estado['Volt_minimo'].median():,.2f}
+            
+            **Oportunidades:**
+            - 🟢 {df_estado[df_estado['Es_Critico']].shape[0]} estados con ofertas excepcionales
+            - 🟡 {df_estado[~df_estado['Es_Critico']].shape[0]} estados con precios estándar
+            """)
 
 # ============================================
-# TAB 2: TRAZABILIDAD DE CLIENTES (USANDO PX.SCATTER_MAPBOX)
+# TAB 2: TRAZABILIDAD DE CLIENTES
 # ============================================
 with tab2:
     st.markdown("### 🔗 Trazabilidad de Clientes")
@@ -520,7 +606,6 @@ with tab2:
     )
     
     mostrar_lineas = st.sidebar.checkbox("📊 Mostrar líneas de conexión", value=True)
-    mostrar_etiquetas = st.sidebar.checkbox("🏷️ Mostrar etiquetas de clientes", value=True)
     
     # --- CALCULAR DATOS DE TRAZABILIDAD ---
     df_conexiones = calcular_distancias_manual(df_filtrado)
@@ -555,39 +640,39 @@ with tab2:
     
     st.markdown("---")
     
-    # --- MAPA DE TRAZABILIDAD USANDO PX.SCATTER_MAPBOX ---
+    # --- MAPA DE TRAZABILIDAD USANDO PLOTLY EXPRESS ---
     st.subheader("📍 Mapa de Conexiones entre Clientes")
     
     df_clientes = df_filtrado.dropna(subset=['Longitud', 'Latitud'])
     
     # Crear columna de color según precio
-    df_clientes['Color_Price'] = df_clientes['VOLT'].apply(
+    df_clientes['Categoria_Precio'] = df_clientes['VOLT'].apply(
         lambda x: 'Bajo' if x <= df_clientes['VOLT'].quantile(0.33) 
         else 'Medio' if x <= df_clientes['VOLT'].quantile(0.66) 
         else 'Alto'
     )
     
-    # Mapa de clientes con px.scatter_mapbox
+    # Crear mapa con plotly express
     fig_trazabilidad = px.scatter_mapbox(
         df_clientes,
         lat="Latitud",
         lon="Longitud",
-        color="Color_Price",
+        color="Categoria_Precio",
         color_discrete_map={
             'Bajo': '#2ECC40',
             'Medio': '#FFD700',
             'Alto': '#FF6B6B'
         },
+        size=[10] * len(df_clientes),
         hover_data={
             'CIUDAD': True,
             'GRUPO': True,
-            'VOLT': True,
+            'VOLT': '$.2f',
             'ESTADO': True,
             'Folio Emetrix': True,
-            'Color_Price': False
+            'Categoria_Precio': False
         },
-        text="GRUPO" if mostrar_etiquetas else None,
-        title="Clientes y sus conexiones",
+        title="Clientes y sus conexiones (Verde=Bajo, Amarillo=Medio, Rojo=Alto)",
         zoom=5,
         height=700,
         center={
@@ -653,6 +738,7 @@ with tab2:
     df_tabla_conexiones['Precio Origen'] = df_tabla_conexiones['Precio Origen'].apply(lambda x: f"${x:,.2f}")
     df_tabla_conexiones['Precio Destino'] = df_tabla_conexiones['Precio Destino'].apply(lambda x: f"${x:,.2f}")
     
+    # Calcular diferencia
     precio_origen_num = df_tabla_conexiones['Precio Origen'].str.replace('$', '').str.replace(',', '').astype(float)
     precio_destino_num = df_tabla_conexiones['Precio Destino'].str.replace('$', '').str.replace(',', '').astype(float)
     df_tabla_conexiones['Diferencia'] = (precio_origen_num - precio_destino_num).apply(lambda x: f"${x:,.2f}")
@@ -676,35 +762,4 @@ with tab2:
         df_aislados['Precio'] = df_aislados['Precio'].apply(lambda x: f"${x:,.2f}")
         
         if not df_aislados.empty:
-            st.warning(f"⚠️ {len(df_aislados)} clientes sin conexiones dentro de {distancia_max} km")
-            st.dataframe(df_aislados, use_container_width=True, hide_index=True)
-        else:
-            st.success("✅ Todos los clientes tienen al menos una conexión")
-
-# ============================================
-# EXPORTAR DATOS
-# ============================================
-st.markdown("---")
-col1, col2, col3 = st.columns([1, 1, 1])
-
-with col2:
-    if 'df_conexiones' in locals() and not df_conexiones.empty:
-        csv_conexiones = df_tabla_conexiones.to_csv(index=False)
-        st.download_button(
-            label="📥 Descargar Conexiones (CSV)",
-            data=csv_conexiones,
-            file_name="conexiones_clientes.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
-
-# ============================================
-# FOOTER
-# ============================================
-st.markdown("---")
-st.markdown(
-    f"<p style='text-align: center; color: #666; font-size: 12px;'>"
-    f"Dashboard desarrollado con ❤️ | Datos actualizados al: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}"
-    f"</p>",
-    unsafe_allow_html=True
-)
+            st.warning
