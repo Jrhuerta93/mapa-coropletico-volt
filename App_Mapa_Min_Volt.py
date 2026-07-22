@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 import json
 import requests
 import numpy as np
-import time  # ← FALTABA ESTA IMPORTACIÓN
+import time
 import hashlib
 import os
 
@@ -39,6 +39,18 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">🗺️ Análisis de Precios y Trazabilidad</div>', unsafe_allow_html=True)
+
+# ============================================
+# CONFIGURACIÓN DE BANDA DE PRECIOS
+# ============================================
+PRECIO_OBJETIVO = 235
+
+RANGOS_SEMAFORO = [
+    {'min': 0, 'max': 225, 'color': 'rgba(255, 107, 107, 0.18)', 'nombre': 'Rojo', 'descripcion': 'Abajo de 225 (crítico)'},
+    {'min': 225, 'max': 230, 'color': 'rgba(255, 165, 0, 0.18)', 'nombre': 'Naranja', 'descripcion': '225-230 (riesgo/precaución)'},
+    {'min': 230, 'max': 235, 'color': 'rgba(46, 204, 64, 0.18)', 'nombre': 'Verde', 'descripcion': '230-235 (saludable)'},
+    {'min': 235, 'max': 300, 'color': 'rgba(66, 133, 244, 0.18)', 'nombre': 'Azul', 'descripcion': '+235 (sobre desempeño)'},
+]
 
 # ============================================
 # FUNCIONES DE CARGA DE DATOS
@@ -89,10 +101,6 @@ def cargar_geojson():
 # ============================================
 @st.cache_data
 def calcular_distancias_optimizado(df, distancia_max=100, top_n=5):
-    """
-    Calcula distancias entre clientes usando vectorización con NumPy.
-    MUCHO más rápido que el loop anidado original.
-    """
     if 'Longitud' not in df.columns or 'Latitud' not in df.columns:
         return pd.DataFrame()
     
@@ -101,26 +109,20 @@ def calcular_distancias_optimizado(df, distancia_max=100, top_n=5):
         return pd.DataFrame()
     
     n = len(df_coords)
-    
-    # Convertir a radianes
     coords_rad = np.radians(df_coords[['Latitud', 'Longitud']].values)
     
-    # Calcular matriz de distancias con Haversine vectorizado
     lat = coords_rad[:, 0]
     lon = coords_rad[:, 1]
     
-    # Matriz de diferencias
     dlat = lat[:, np.newaxis] - lat[np.newaxis, :]
     dlon = lon[:, np.newaxis] - lon[np.newaxis, :]
     
     a = np.sin(dlat/2)**2 + np.cos(lat[:, np.newaxis]) * np.cos(lat[np.newaxis, :]) * np.sin(dlon/2)**2
     c = 2 * np.arcsin(np.sqrt(a))
-    distancias = 6371 * c  # Radio de la Tierra en km
+    distancias = 6371 * c
     
-    # Enmascarar diagonal
     np.fill_diagonal(distancias, np.inf)
     
-    # Encontrar vecinos más cercanos
     conexiones = []
     
     for i in range(n):
@@ -130,7 +132,6 @@ def calcular_distancias_optimizado(df, distancia_max=100, top_n=5):
         if len(vecinos_validos) == 0:
             continue
         
-        # Ordenar y tomar top_n
         distancias_vecinos = distancias_i[vecinos_validos]
         orden = np.argsort(distancias_vecinos)
         top_indices = vecinos_validos[orden[:top_n]]
@@ -501,49 +502,132 @@ with tab1:
         styled_df = df_tabla.style.apply(color_rows, axis=1)
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
-        st.subheader("📈 Distribución de Precios por Estado")
+        # ============================================
+        # GRÁFICO DE ÁREA/LÍNEA CON BANDA DE PRECIOS Y SEMÁFORO
+        # ============================================
+        st.subheader("📈 Curva de Precios por Clientes vs Objetivo")
         
-        df_bar = df_tabla.copy()
-        df_bar['Precio Numérico'] = df_bar['Precio Mínimo'].str.replace('$', '').str.replace(',', '').astype(float)
-        df_bar = df_bar.sort_values('Precio Numérico', ascending=True)
+        # Preparar datos ordenados por precio
+        df_linea = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo']].copy()
+        df_linea.columns = ['Estado', 'Grupo', 'Precio']
+        df_linea = df_linea.sort_values('Precio', ascending=True).reset_index(drop=True)
         
-        bar_colors = ['#ff6b6b' if row['Precio Crítico'] == '🔴 Sí' else '#3182bd' for _, row in df_bar.iterrows()]
+        # Crear figura
+        fig_linea = go.Figure()
         
-        fig_bar = go.Figure()
+        # 1. RECTÁNGULOS DE FONDO (SEMAFORO)
+        for rango in RANGOS_SEMAFORO:
+            fig_linea.add_hrect(
+                y0=rango['min'],
+                y1=rango['max'],
+                fillcolor=rango['color'],
+                line_width=0,
+                layer="below"
+            )
         
-        fig_bar.add_trace(go.Bar(
-            x=df_bar['Estado'],
-            y=df_bar['Precio Numérico'],
-            text=df_bar['Grupo con mejor precio'],
-            textposition='outside',
-            textfont=dict(size=9),
-            marker_color=bar_colors,
-            marker_line_color='white',
-            marker_line_width=1.5,
-            hovertemplate="<b>%{x}</b><br>" +
-                          "Precio: $%{y:,.2f}<br>" +
-                          "Grupo: %{text}<br>" +
-                          "<extra></extra>"
+        # 2. LÍNEA DE BANDA OBJETIVO
+        fig_linea.add_hline(
+            y=PRECIO_OBJETIVO,
+            line_dash="solid",
+            line_color="#1a1a2e",
+            line_width=2,
+            layer="below"
+        )
+        
+        # Anotación de la banda objetivo
+        fig_linea.add_annotation(
+            x=1.0,
+            y=PRECIO_OBJETIVO,
+            xref='paper',
+            yref='y',
+            text=f"<b>🎯 ${PRECIO_OBJETIVO}</b>",
+            showarrow=False,
+            font=dict(size=11, color="#1a1a2e", family="Arial"),
+            bgcolor="rgba(255,255,255,0.9)",
+            bordercolor="#1a1a2e",
+            borderwidth=1,
+            borderpad=4,
+            xanchor='left',
+            yanchor='bottom',
+            xshift=10
+        )
+        
+        # 3. ÁREA BAJO LA CURVA
+        fig_linea.add_trace(go.Scatter(
+            x=df_linea['Estado'],
+            y=df_linea['Precio'],
+            fill='tozeroy',
+            fillcolor='rgba(70, 130, 180, 0.25)',
+            line=dict(color='#1a3a5c', width=2.5),
+            mode='lines+markers+text',
+            marker=dict(size=6, color='#1a3a5c', line=dict(width=1, color='white')),
+            text=df_linea['Precio'].apply(lambda x: f"${x:.1f}"),
+            textposition='top center',
+            textfont=dict(size=9, color='#1a1a2e', family='Arial'),
+            hovertemplate="<b>%{x}</b><br>💰 $%{y:,.2f}<br>🏢 %{customdata}<extra></extra>",
+            customdata=df_linea['Grupo']
         ))
         
-        fig_bar.update_layout(
-            title="Precios Mínimos por Estado - De mejor a peor oferta",
-            xaxis_tickangle=-45,
-            yaxis_title="",
-            xaxis_title="",
+        # 4. EJE Y AJUSTADO A PRECIOS REALES
+        y_min = max(170, df_linea['Precio'].min() - 8)
+        y_max = min(250, df_linea['Precio'].max() + 8)
+        
+        fig_linea.update_yaxes(
+            range=[y_min, y_max],
+            dtick=5,
+            tickprefix="$",
+            tickformat=",.0f",
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.06)',
+            gridwidth=0.5,
+            zeroline=False,
+            title=dict(text='Precio ($)', font=dict(size=11))
+        )
+        
+        fig_linea.update_xaxes(
+            tickangle=-45,
+            tickfont=dict(size=8),
+            showgrid=False
+        )
+        
+        # 5. CONFIGURAR LAYOUT
+        fig_linea.update_layout(
+            title=dict(
+                text="Curva de Precios por Clientes vs Objetivo",
+                font=dict(size=16, color="#1a1a2e", family="Arial")
+            ),
             showlegend=False,
             plot_bgcolor='white',
             paper_bgcolor='white',
-            font=dict(family="Arial", size=11, color="#2c3e50"),
-            title_font=dict(size=15, color="#1a1a2e"),
-            height=450,
-            margin=dict(l=40, r=40, t=60, b=80),
-            xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=10)),
-            yaxis=dict(showgrid=False, zeroline=False, showticklabels=True, tickprefix="$", tickfont=dict(size=10))
+            height=520,
+            margin=dict(l=70, r=150, t=70, b=110),
+            annotations=[
+                dict(
+                    x=1.01,
+                    y=0.98,
+                    xref='paper',
+                    yref='paper',
+                    text="<b>Semáforo de Precios</b><br>" +
+                         "<span style='color:#4285F4'>■</span> <b>Azul</b>: +$235 (sobre desempeño)<br>" +
+                         "<span style='color:#2ECC40'>■</span> <b>Verde</b>: $230-235 (saludable)<br>" +
+                         "<span style='color:#FFA500'>■</span> <b>Naranja</b>: $225-230 (riesgo)<br>" +
+                         "<span style='color:#FF6B6B'>■</span> <b>Rojo</b>: <$225 (crítico)",
+                    showarrow=False,
+                    font=dict(size=10, family="Arial"),
+                    align='left',
+                    bgcolor='rgba(255,255,255,0.95)',
+                    bordercolor='#cccccc',
+                    borderwidth=1,
+                    borderpad=8
+                )
+            ]
         )
         
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_linea, use_container_width=True)
         
+        # ============================================
+        # INSIGHTS Y STORYTELLING
+        # ============================================
         st.markdown("---")
         st.subheader("📖 Insights y Storytelling")
         
@@ -581,7 +665,7 @@ with tab1:
             """)
 
 # ============================================
-# TAB 2: TRAZABILIDAD DE CLIENTES OPTIMIZADA
+# TAB 2: TRAZABILIDAD DE CLIENTES
 # ============================================
 with tab2:
     st.markdown("### 🔗 Trazabilidad de Clientes")
