@@ -48,14 +48,14 @@ def cargar_datos():
             df['VOLT'] = pd.to_numeric(df['VOLT'], errors='coerce').fillna(0.0)
         
         # Asegurar que la columna REGION existe y tiene datos
-        if 'REGION' not in df.columns:
+        if 'REGIÓN' not in df.columns:
             # Si no existe, crear una columna REGION con valores por defecto
-            df['REGION'] = 'Sin región'
+            df['REGIÓN'] = 'Sin región'
         else:
             # Limpiar y normalizar región
-            df['REGION'] = df['REGION'].fillna('Sin región')
-            df['REGION'] = df['REGION'].str.strip()
-            df['REGION'] = df['REGION'].replace('', 'Sin región')
+            df['REGIÓN'] = df['REGIÓN'].fillna('Sin región')
+            df['REGIÓN'] = df['REGIÓN'].str.strip()
+            df['REGIÓN'] = df['REGIÓN'].replace('', 'Sin región')
         
         return df
     except Exception as e:
@@ -90,7 +90,7 @@ st.sidebar.markdown("### 🔍 Filtros")
 st.sidebar.markdown("---")
 
 # Obtener regiones únicas (excluyendo valores nulos/vacíos)
-regiones = df['REGION'].unique()
+regiones = df['REGIÓN'].unique()
 regiones = [r for r in regiones if r and r != 'Sin región' and str(r).strip() != '']
 regiones = sorted(regiones) if len(regiones) > 0 else ['Todas']
 
