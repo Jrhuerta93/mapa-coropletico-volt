@@ -6,8 +6,42 @@ import json
 import requests
 import numpy as np
 
-st.set_page_config(page_title="Volt Mínimo por Estado", layout="wide")
-st.title("🗺️ Mapa Coroplético: Volt Mínimo por Estado")
+st.set_page_config(
+    page_title="Volt Mínimo por Estado", 
+    layout="wide",
+    page_icon="📊"
+)
+
+# Estilo personalizado para mejor presentación
+st.markdown("""
+    <style>
+    .main-title {
+        font-size: 32px;
+        font-weight: bold;
+        color: #1a1a2e;
+        padding: 20px 0;
+        text-align: center;
+        border-bottom: 3px solid #16213e;
+        margin-bottom: 30px;
+    }
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 20px;
+        border-radius: 10px;
+        color: white;
+        text-align: center;
+    }
+    .stMetric {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# Título con estilo
+st.markdown('<div class="main-title">🗺️ Mapa de Precios Mínimos por Estado</div>', unsafe_allow_html=True)
 
 @st.cache_data
 def cargar_datos():
@@ -45,26 +79,27 @@ if 'GRUPO' not in df.columns:
     df['GRUPO'] = df['Folio Emetrix']
 
 # --- FILTROS ---
-st.sidebar.header("🔍 Filtros")
+st.sidebar.markdown("### 🔍 Filtros")
+st.sidebar.markdown("---")
 
 # Crear opciones para filtros
 regiones = df['REGION'].unique() if 'REGION' in df.columns else []
 estados = df['ESTADO'].unique()
 grupos = df['GRUPO'].unique()
 
-# Filtros en sidebar
+# Filtros en sidebar con mejor estilo
 filtro_region = st.sidebar.selectbox(
-    "Seleccionar Región",
+    "📌 Región",
     options=["Todas"] + sorted(regiones.tolist()) if len(regiones) > 0 else ["Todas"]
 )
 
 filtro_estado = st.sidebar.selectbox(
-    "Seleccionar Estado",
+    "📍 Estado",
     options=["Todos"] + sorted(estados.tolist())
 )
 
 filtro_grupo = st.sidebar.selectbox(
-    "Seleccionar Grupo/Cliente",
+    "🏢 Grupo/Cliente",
     options=["Todos"] + sorted(grupos.tolist())
 )
 
@@ -86,7 +121,7 @@ if df_filtrado.empty:
 
 # Mostrar resumen de filtros
 st.sidebar.markdown("---")
-st.sidebar.write(f"📊 **{len(df_filtrado)}** tiendas encontradas")
+st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
 
 # --- IDENTIFICAR LA TIENDA CON PRECIO MÍNIMO POR ESTADO ---
 df_estado_min = df_filtrado.loc[df_filtrado.groupby('ESTADO')['VOLT'].idxmin()]
@@ -174,8 +209,41 @@ if geojson_data is None:
     st.error("❌ No se pudo cargar el archivo GeoJSON")
     st.stop()
 
-# --- CREAR MAPA ---
+# --- MÉTRICAS PRINCIPALES ---
+st.markdown("### 📊 Resumen Ejecutivo")
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    precio_min = df_filtrado['VOLT'].min()
+    st.metric("💰 Precio más bajo", f"${precio_min:,.2f}", delta="Mejor oferta")
+
+with col2:
+    precio_max = df_filtrado['VOLT'].max()
+    st.metric("💸 Precio más alto", f"${precio_max:,.2f}", delta="Precio premium")
+
+with col3:
+    precio_prom = df_filtrado['VOLT'].mean()
+    st.metric("📊 Precio promedio", f"${precio_prom:,.2f}")
+
+with col4:
+    total_estados = len(df_estado)
+    st.metric("📍 Estados activos", total_estados)
+
+st.markdown("---")
+
+# --- CREAR MAPA CON PALETA DE COLORES PROFESIONAL ---
 st.subheader("📍 Mapa de Precios Mínimos por Estado")
+
+# Paleta de colores profesional (gradiente de azul a rojo para storytelling)
+# Usamos una paleta que comunica claramente: VERDE = Buen precio, ROJO = Precio alto
+colorscale = [
+    [0, "#006837"],    # Verde oscuro (mejor precio)
+    [0.2, "#2ca02c"],  # Verde
+    [0.4, "#ffed6f"],  # Amarillo
+    [0.6, "#ff9900"],  # Naranja
+    [0.8, "#d62728"],  # Rojo
+    [1, "#8b0000"]     # Rojo oscuro (peor precio)
+]
 
 # Crear figura con go.Figure
 fig = go.Figure()
@@ -186,21 +254,28 @@ fig.add_trace(go.Choropleth(
     locations=df_estado['Estado_Mapa'],
     z=df_estado['Volt_minimo'],
     featureidkey="properties.name",
-    colorscale="RdYlGn_r",
+    colorscale=colorscale,
     zmin=df_estado['Volt_minimo'].min(),
     zmax=df_estado['Volt_minimo'].max(),
-    marker_line_width=1,
-    marker_line_color='black',
+    marker_line_width=1.5,
+    marker_line_color='white',
     colorbar=dict(
-        title="Precio Mínimo ($)",
+        title=dict(
+            text="Precio Mínimo ($)",
+            side="right",
+            font=dict(size=14, family="Arial", color="#2c3e50")
+        ),
         tickprefix="$",
         tickformat=",.0f",
-        thickness=20,
+        thickness=25,
         len=0.8,
-        x=1.02
+        x=1.02,
+        tickfont=dict(size=12),
+        bgcolor="rgba(255,255,255,0.8)"
     ),
     hovertemplate="%{customdata[0]}<extra></extra>",
-    customdata=df_estado['Hover_Texto'].values
+    customdata=df_estado['Hover_Texto'].values,
+    showscale=True
 ))
 
 # 2. Calcular centroides manualmente
@@ -236,14 +311,14 @@ df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (Non
 # Filtrar estados con datos
 df_con_coords = df_estado.dropna(subset=['lon', 'lat'])
 
-# 3. Agregar etiquetas de precio (SOLO PRECIO)
+# 3. Agregar etiquetas de precio con mejor visibilidad
 fig.add_trace(go.Scattergeo(
     lon=df_con_coords['lon'],
     lat=df_con_coords['lat'],
     mode='text',
     text=df_con_coords['Texto_Mapa'],
     textfont=dict(
-        size=14,
+        size=13,
         color='white',
         family='Arial, sans-serif',
         weight='bold'
@@ -253,63 +328,157 @@ fig.add_trace(go.Scattergeo(
     showlegend=False
 ))
 
-# Configurar el layout
+# Configurar el layout con mejor estética
 fig.update_geos(
     fitbounds="locations",
     visible=False,
     showcoastlines=True,
-    coastlinecolor="black",
+    coastlinecolor="white",
+    coastlinewidth=1.5,
     showland=True,
-    landcolor="lightgray",
+    landcolor="#f0f0f0",
     showocean=True,
-    oceancolor="lightblue"
+    oceancolor="#e8f4f8",
+    showcountries=False,
+    showframe=False
 )
 
 fig.update_layout(
-    margin={"r":0, "t":30, "l":0, "b":0},
-    height=800,
+    margin={"r":30, "t":30, "l":0, "b":0},
+    height=750,
     geo=dict(
         projection_type='mercator',
         showframe=False,
         showcoastlines=True,
-        coastlinecolor="black",
+        coastlinecolor="white",
     ),
     hoverlabel=dict(
         bgcolor="white",
         font_size=13,
-        font_family="Arial"
-    )
+        font_family="Arial",
+        font_color="#2c3e50",
+        bordercolor="#2c3e50"
+    ),
+    plot_bgcolor="white",
+    paper_bgcolor="white"
 )
 
+# Mostrar el mapa
 st.plotly_chart(fig, use_container_width=True)
 
 # --- TABLA DE DATOS FILTRADA ---
-st.subheader("📊 Datos Filtrados")
+st.subheader("📊 Detalle por Estado")
 
-# Mostrar tabla con los datos filtrados
-df_tabla = df_filtrado[['ESTADO', 'GRUPO', 'VOLT']].copy()
-df_tabla.columns = ['Estado', 'Grupo', 'Precio']
-df_tabla = df_tabla.sort_values(['Estado', 'Precio'])
-df_tabla['Precio'] = df_tabla['Precio'].apply(lambda x: f"${x:,.2f}")
+# Crear tabla con mejor formato
+df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas']].copy()
+df_tabla.columns = ['Estado', 'Grupo con mejor precio', 'Precio Mínimo', 'Total Tiendas']
+df_tabla = df_tabla.sort_values('Precio Mínimo', ascending=True)
 
-st.dataframe(df_tabla, use_container_width=True, hide_index=True)
+# Formatear precios
+df_tabla['Precio Mínimo'] = df_tabla['Precio Mínimo'].apply(lambda x: f"${x:,.2f}")
 
-# --- MÉTRICAS ---
-col1, col2, col3 = st.columns(3)
+# Función para colorear filas según precio
+def color_rows(row):
+    precio_limpio = float(row['Precio Mínimo'].replace('$', '').replace(',', ''))
+    precio_min = df_estado['Volt_minimo'].min()
+    precio_max = df_estado['Volt_minimo'].max()
+    
+    if precio_limpio == precio_min:
+        return ['background-color: #006837; color: white; font-weight: bold'] * len(row)
+    elif precio_limpio == precio_max:
+        return ['background-color: #8b0000; color: white; font-weight: bold'] * len(row)
+    elif precio_limpio <= (precio_min + (precio_max - precio_min) * 0.3):
+        return ['background-color: #d4edda'] * len(row)
+    elif precio_limpio >= (precio_max - (precio_max - precio_min) * 0.3):
+        return ['background-color: #f8d7da'] * len(row)
+    return [''] * len(row)
+
+styled_df = df_tabla.style.apply(color_rows, axis=1)
+st.dataframe(styled_df, use_container_width=True, hide_index=True)
+
+# --- GRÁFICO DE BARRAS PARA STORYTELLING ---
+st.subheader("📈 Distribución de Precios - Storytelling")
+
+# Crear gráfico de barras con mejor visualización
+df_bar = df_tabla.copy()
+df_bar['Precio Numérico'] = df_bar['Precio Mínimo'].str.replace('$', '').str.replace(',', '').astype(float)
+df_bar = df_bar.sort_values('Precio Numérico', ascending=True)
+
+fig_bar = px.bar(
+    df_bar,
+    x='Estado',
+    y='Precio Numérico',
+    color='Precio Numérico',
+    color_continuous_scale=colorscale,
+    title="Precios Mínimos por Estado - De mejor a peor oferta",
+    labels={'y': 'Precio Mínimo ($)', 'x': 'Estado'},
+    text='Grupo con mejor precio',
+    height=500
+)
+
+fig_bar.update_traces(
+    textposition='outside',
+    textfont=dict(size=10, family="Arial"),
+    marker_line_color='white',
+    marker_line_width=1.5
+)
+
+fig_bar.update_layout(
+    xaxis_tickangle=-45,
+    showlegend=False,
+    plot_bgcolor='white',
+    paper_bgcolor='white',
+    font=dict(family="Arial", size=12, color="#2c3e50"),
+    title_font=dict(size=16, color="#1a1a2e"),
+    coloraxis_colorbar=dict(
+        title="Precio",
+        tickprefix="$",
+        tickformat=",.0f"
+    ),
+    margin=dict(l=50, r=50, t=80, b=100)
+)
+
+st.plotly_chart(fig_bar, use_container_width=True)
+
+# --- INSIGHTS Y STORYTELLING ---
+st.markdown("---")
+st.subheader("📖 Insights y Storytelling")
+
+# Generar insights automáticos
+precio_min = df_estado['Volt_minimo'].min()
+precio_max = df_estado['Volt_minimo'].max()
+estado_min = df_estado[df_estado['Volt_minimo'] == precio_min]['Estado_Mapa'].iloc[0]
+estado_max = df_estado[df_estado['Volt_minimo'] == precio_max]['Estado_Mapa'].iloc[0]
+grupo_min = df_estado[df_estado['Volt_minimo'] == precio_min]['Grupo'].iloc[0]
+grupo_max = df_estado[df_estado['Volt_minimo'] == precio_max]['Grupo'].iloc[0]
+
+col1, col2 = st.columns(2)
+
 with col1:
-    st.metric("💰 Precio Mínimo Global", f"${df_filtrado['VOLT'].min():,.2f}")
+    st.markdown(f"""
+    ### 🟢 Oportunidad de Precio
+    **{estado_min}** ofrece el precio más bajo con **${precio_min:,.2f}**
+    
+    *Clave:* {grupo_min} es el proveedor con la mejor oferta en esta región.
+    """)
+
 with col2:
-    st.metric("📈 Precio Máximo Global", f"${df_filtrado['VOLT'].max():,.2f}")
-with col3:
-    st.metric("📊 Precio Promedio", f"${df_filtrado['VOLT'].mean():,.2f}")
+    st.markdown(f"""
+    ### 🔴 Área de Oportunidad
+    **{estado_max}** tiene el precio más alto con **${precio_max:,.2f}**
+    
+    *Análisis:* Existe una oportunidad de {((precio_max - precio_min) / precio_min * 100):.0f}% de mejora en precios.
+    """)
 
 # --- EXPORTAR DATOS ---
-st.subheader("📥 Descargar Datos Filtrados")
-
-csv = df_tabla.to_csv(index=False)
-st.download_button(
-    label="📥 Descargar datos filtrados (CSV)",
-    data=csv,
-    file_name="datos_filtrados.csv",
-    mime="text/csv"
-)
+st.markdown("---")
+col1, col2, col3 = st.columns([1, 1, 1])
+with col2:
+    csv = df_tabla.to_csv(index=False)
+    st.download_button(
+        label="📥 Descargar Datos (CSV)",
+        data=csv,
+        file_name="precios_minimos_por_estado.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
