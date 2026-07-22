@@ -1,3 +1,6 @@
 streamlit
 pandas
 plotly
+requests
+numpy
+scipy
