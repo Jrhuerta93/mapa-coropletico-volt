@@ -40,8 +40,23 @@ def cargar_datos():
     try:
         df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
         df.columns = df.columns.str.strip()
+        
+        # Mostrar columnas para debug (opcional)
+        # st.write("Columnas disponibles:", df.columns.tolist())
+        
         if 'VOLT' in df.columns:
             df['VOLT'] = pd.to_numeric(df['VOLT'], errors='coerce').fillna(0.0)
+        
+        # Asegurar que la columna REGION existe y tiene datos
+        if 'REGION' not in df.columns:
+            # Si no existe, crear una columna REGION con valores por defecto
+            df['REGION'] = 'Sin región'
+        else:
+            # Limpiar y normalizar región
+            df['REGION'] = df['REGION'].fillna('Sin región')
+            df['REGION'] = df['REGION'].str.strip()
+            df['REGION'] = df['REGION'].replace('', 'Sin región')
+        
         return df
     except Exception as e:
         st.error(f"❌ Error al cargar datos: {e}")
@@ -74,29 +89,37 @@ if 'GRUPO' not in df.columns:
 st.sidebar.markdown("### 🔍 Filtros")
 st.sidebar.markdown("---")
 
-regiones = df['REGION'].unique() if 'REGION' in df.columns else []
-estados = df['ESTADO'].unique()
-grupos = df['GRUPO'].unique()
+# Obtener regiones únicas (excluyendo valores nulos/vacíos)
+regiones = df['REGION'].unique()
+regiones = [r for r in regiones if r and r != 'Sin región' and str(r).strip() != '']
+regiones = sorted(regiones) if len(regiones) > 0 else ['Todas']
 
+estados = sorted(df['ESTADO'].unique())
+grupos = sorted(df['GRUPO'].unique())
+
+# Debug: mostrar regiones disponibles (solo para desarrollo)
+# st.sidebar.write("Regiones disponibles:", regiones)
+
+# Filtros
 filtro_region = st.sidebar.selectbox(
     "📌 Región",
-    options=["Todas"] + sorted(regiones.tolist()) if len(regiones) > 0 else ["Todas"]
+    options=["Todas"] + regiones if regiones else ["Todas"]
 )
 
 filtro_estado = st.sidebar.selectbox(
     "📍 Estado",
-    options=["Todos"] + sorted(estados.tolist())
+    options=["Todos"] + estados
 )
 
 filtro_grupo = st.sidebar.selectbox(
     "🏢 Grupo/Cliente",
-    options=["Todos"] + sorted(grupos.tolist())
+    options=["Todos"] + grupos
 )
 
 # Aplicar filtros
 df_filtrado = df.copy()
 
-if filtro_region != "Todas" and 'REGION' in df.columns:
+if filtro_region != "Todas" and filtro_region:
     df_filtrado = df_filtrado[df_filtrado['REGION'] == filtro_region]
 
 if filtro_estado != "Todos":
@@ -111,6 +134,13 @@ if df_filtrado.empty:
 
 st.sidebar.markdown("---")
 st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
+
+# Mostrar regiones disponibles en los datos filtrados
+if filtro_region == "Todas":
+    regiones_filtradas = df_filtrado['REGION'].unique()
+    regiones_filtradas = [r for r in regiones_filtradas if r and r != 'Sin región']
+    if regiones_filtradas:
+        st.sidebar.markdown(f"**Regiones presentes:** {', '.join(sorted(regiones_filtradas))}")
 
 # --- IDENTIFICAR LA TIENDA CON PRECIO MÍNIMO POR ESTADO ---
 df_estado_min = df_filtrado.loc[df_filtrado.groupby('ESTADO')['VOLT'].idxmin()]
@@ -178,22 +208,14 @@ mapeo_estados = {
 df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 
 # ============================================
-# FUNCIÓN PARA DETERMINAR COLOR DE TEXTO (SIN MATPLOTLIB)
+# FUNCIÓN PARA DETERMINAR COLOR DE TEXTO
 # ============================================
 def get_text_color(value, min_val, max_val):
-    """
-    Determina si el texto debe ser blanco o negro basado en el valor
-    respecto al rango de la paleta Blues
-    """
     if max_val == min_val:
-        return 'white'  # Si todos son iguales
+        return 'white'
     
-    # Normalizar el valor entre 0 y 1
     normalized = (value - min_val) / (max_val - min_val)
     
-    # Para la paleta 'Blues', usamos un umbral de 0.55
-    # por debajo: texto negro (fondos claros)
-    # por encima: texto blanco (fondos oscuros)
     if normalized > 0.55:
         return 'white'
     else:
@@ -210,27 +232,26 @@ umbral_critico = precio_minimo_global + (rango_precio * 0.25)
 df_estado['Es_Critico'] = df_estado['Volt_minimo'] <= umbral_critico
 
 # ============================================
-# CREAR TEXTO CON COLOR DINÁMICO
+# CREAR TEXTO PARA HOVER Y MAPA
 # ============================================
-# Calcular color de texto para cada estado
 df_estado['Color_Texto'] = df_estado['Volt_minimo'].apply(
     lambda x: get_text_color(x, precio_minimo_global, precio_maximo_global)
 )
 
-# Crear texto para mostrar en el mapa (SOLO PRECIO)
 df_estado['Texto_Mapa'] = df_estado.apply(
     lambda row: f"${row['Volt_minimo']:,.2f}" + 
                 (" 🔴" if row['Es_Critico'] else ""),
     axis=1
 )
 
-# Crear texto para hover (información completa)
+# HOVER COMPLETO - CORREGIDO PARA QUE FUNCIONE
 df_estado['Hover_Texto'] = df_estado.apply(
     lambda row: f"<b>{row['Estado_Mapa']}</b><br>" +
                 f"🏢 Grupo: {row['Grupo']}<br>" +
                 f"💰 Precio: <b>${row['Volt_minimo']:,.2f}</b><br>" +
-                f"📊 Tiendas: {row['Total_Tiendas']}<br>" +
-                ("🔴 <b>¡PRECIO CRÍTICO! OFERTA EXCEPCIONAL</b>" if row['Es_Critico'] else ""),
+                f"📊 Tiendas: {row['Total_Tiendas']}" +
+                (f"<br>📍 Región: {row['REGION']}" if 'REGION' in row and pd.notna(row['REGION']) else "") +
+                ("<br>🔴 <b>¡PRECIO CRÍTICO!</b>" if row['Es_Critico'] else ""),
     axis=1
 )
 
@@ -246,11 +267,11 @@ col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     precio_min = df_filtrado['VOLT'].min()
-    st.metric("💰 Precio más bajo", f"${precio_min:,.2f}", delta="⭐ Oferta crítica")
+    st.metric("💰 Precio más bajo", f"${precio_min:,.2f}")
 
 with col2:
     precio_max = df_filtrado['VOLT'].max()
-    st.metric("💸 Precio más alto", f"${precio_max:,.2f}", delta="Precio premium")
+    st.metric("💸 Precio más alto", f"${precio_max:,.2f}")
 
 with col3:
     precio_prom = df_filtrado['VOLT'].mean()
@@ -262,17 +283,15 @@ with col4:
 
 with col5:
     total_criticos = df_estado['Es_Critico'].sum()
-    st.metric("🔴 Precios críticos", total_criticos, delta="Ofertas especiales")
+    st.metric("🔴 Precios críticos", total_criticos)
 
 st.markdown("---")
 
-# --- CREAR MAPA CON ESTILO BLUES ---
+# --- CREAR MAPA ---
 st.subheader("📍 Mapa de Precios Mínimos por Estado")
 
-# Paleta Blues
 COLOR_SCALE = 'Blues'
 
-# Crear figura con go.Figure
 fig = go.Figure()
 
 # 1. Agregar el mapa coropleto
@@ -300,7 +319,7 @@ fig.add_trace(go.Choropleth(
         tickfont=dict(size=12),
         bgcolor="rgba(255,255,255,0.8)"
     ),
-    hovertemplate="%{customdata[0]}<extra></extra>",
+    hovertemplate="%{customdata[0]}<extra></extra>",  # <-- Esto es clave para el hover
     customdata=df_estado['Hover_Texto'].values,
     showscale=True
 ))
@@ -336,8 +355,7 @@ df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (Non
 
 df_con_coords = df_estado.dropna(subset=['lon', 'lat'])
 
-# 3. Agregar etiquetas de precio con color DINÁMICO
-# Creamos una etiqueta por cada estado con su color específico
+# 3. Agregar etiquetas de precio
 for _, row in df_con_coords.iterrows():
     fig.add_trace(go.Scattergeo(
         lon=[row['lon']],
@@ -346,7 +364,7 @@ for _, row in df_con_coords.iterrows():
         text=[row['Texto_Mapa']],
         textfont=dict(
             size=11,
-            color=row['Color_Texto'],  # Color dinámico: blanco o negro
+            color=row['Color_Texto'],
             family='Arial, sans-serif',
             weight='bold'
         ),
@@ -355,7 +373,7 @@ for _, row in df_con_coords.iterrows():
         showlegend=False
     ))
 
-# 4. Agregar marcadores para precios críticos (círculo rojo alrededor)
+# 4. Agregar marcadores para precios críticos
 df_criticos = df_con_coords[df_con_coords['Es_Critico']]
 if not df_criticos.empty:
     fig.add_trace(go.Scattergeo(
@@ -370,8 +388,7 @@ if not df_criticos.empty:
             line=dict(width=2, color='darkred')
         ),
         hoverinfo='skip',
-        showlegend=False,
-        name='Precios críticos'
+        showlegend=False
     ))
 
 # Configurar el layout
@@ -425,16 +442,13 @@ st.plotly_chart(fig, use_container_width=True)
 # --- TABLA DE DATOS ---
 st.subheader("📊 Detalle por Estado")
 
-# Crear tabla
 df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico']].copy()
 df_tabla.columns = ['Estado', 'Grupo con mejor precio', 'Precio Mínimo', 'Total Tiendas', 'Precio Crítico']
 df_tabla = df_tabla.sort_values('Precio Mínimo', ascending=True)
 
-# Formatear precios
 df_tabla['Precio Mínimo'] = df_tabla['Precio Mínimo'].apply(lambda x: f"${x:,.2f}")
 df_tabla['Precio Crítico'] = df_tabla['Precio Crítico'].apply(lambda x: '🔴 Sí' if x else '')
 
-# Función para colorear filas
 def color_rows(row):
     if row['Precio Crítico'] == '🔴 Sí':
         return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row)
@@ -450,7 +464,6 @@ df_bar = df_tabla.copy()
 df_bar['Precio Numérico'] = df_bar['Precio Mínimo'].str.replace('$', '').str.replace(',', '').astype(float)
 df_bar = df_bar.sort_values('Precio Numérico', ascending=True)
 
-# Colores: rojo para críticos, azul para el resto
 bar_colors = ['#ff6b6b' if row['Precio Crítico'] == '🔴 Sí' else '#3182bd' for _, row in df_bar.iterrows()]
 
 fig_bar = go.Figure()
@@ -467,7 +480,6 @@ fig_bar.add_trace(go.Bar(
     hovertemplate="<b>%{x}</b><br>" +
                   "Precio: $%{y:,.2f}<br>" +
                   "Grupo: %{text}<br>" +
-                  ("<b>🔴 PRECIO CRÍTICO</b>" if "🔴" in str(text) else "") +
                   "<extra></extra>"
 ))
 
