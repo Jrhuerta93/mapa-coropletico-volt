@@ -12,6 +12,36 @@ st.set_page_config(
     page_icon="📊"
 )
 
+# --- AGREGAR BOTÓN DE RECARGA EN SIDEBAR ---
+st.sidebar.markdown("### 🔄 Actualización de Datos")
+if st.sidebar.button("🔄 Recargar Datos"):
+    st.cache_data.clear()  # Limpia toda la caché
+    st.rerun()  # Reinicia la app
+@st.cache_data(ttl=3600)  # Cache por 1 hora
+def cargar_datos():
+    try:
+        df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
+        df.columns = df.columns.str.strip()
+        
+        if 'VOLT' in df.columns:
+            df['VOLT'] = pd.to_numeric(df['VOLT'], errors='coerce').fillna(0.0)
+        
+        if 'REGIÓN' not in df.columns:
+            df['REGIÓN'] = 'Sin región'
+        else:
+            df['REGIÓN'] = df['REGIÓN'].fillna('Sin región')
+            df['REGIÓN'] = df['REGIÓN'].str.strip()
+            df['REGIÓN'] = df['REGIÓN'].replace('', 'Sin región')
+        
+        # --- MOSTRAR INFO DE ACTUALIZACIÓN ---
+        st.sidebar.success(f"✅ Datos cargados: {len(df)} registros")
+        st.sidebar.info(f"📅 Última actualización: {pd.Timestamp.now().strftime('%d/%m/%Y %H:%M')}")
+        
+        return df
+    except Exception as e:
+        st.error(f"❌ Error al cargar datos: {e}")
+        return pd.DataFrame()
+    
 # Estilo personalizado para mejor presentación
 st.markdown("""
     <style>
