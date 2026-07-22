@@ -120,7 +120,7 @@ filtro_grupo = st.sidebar.selectbox(
 df_filtrado = df.copy()
 
 if filtro_region != "Todas" and filtro_region:
-    df_filtrado = df_filtrado[df_filtrado['REGION'] == filtro_region]
+    df_filtrado = df_filtrado[df_filtrado['REGIÓN'] == filtro_region]
 
 if filtro_estado != "Todos":
     df_filtrado = df_filtrado[df_filtrado['ESTADO'] == filtro_estado]
@@ -137,7 +137,7 @@ st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
 
 # Mostrar regiones disponibles en los datos filtrados
 if filtro_region == "Todas":
-    regiones_filtradas = df_filtrado['REGION'].unique()
+    regiones_filtradas = df_filtrado['REGIÓN'].unique()
     regiones_filtradas = [r for r in regiones_filtradas if r and r != 'Sin región']
     if regiones_filtradas:
         st.sidebar.markdown(f"**Regiones presentes:** {', '.join(sorted(regiones_filtradas))}")
@@ -148,9 +148,9 @@ df_estado_min = df_filtrado.loc[df_filtrado.groupby('ESTADO')['VOLT'].idxmin()]
 df_estado = df_estado_min[['ESTADO', 'VOLT', 'GRUPO']].copy()
 df_estado.columns = ['ESTADO', 'Volt_minimo', 'Grupo']
 
-if 'REGION' in df_filtrado.columns:
+if 'REGIÓN' in df_filtrado.columns:
     df_estado = df_estado.merge(
-        df_filtrado[['ESTADO', 'REGION']].drop_duplicates('ESTADO'), 
+        df_filtrado[['ESTADO', 'REGIÓN']].drop_duplicates('ESTADO'), 
         on='ESTADO', 
         how='left'
     )
@@ -250,7 +250,7 @@ df_estado['Hover_Texto'] = df_estado.apply(
                 f"🏢 Grupo: {row['Grupo']}<br>" +
                 f"💰 Precio: <b>${row['Volt_minimo']:,.2f}</b><br>" +
                 f"📊 Tiendas: {row['Total_Tiendas']}" +
-                (f"<br>📍 Región: {row['REGION']}" if 'REGION' in row and pd.notna(row['REGION']) else "") +
+                (f"<br>📍 Región: {row['REGIÓN']}" if 'REGION' in row and pd.notna(row['REGIÓN']) else "") +
                 ("<br>🔴 <b>¡PRECIO CRÍTICO!</b>" if row['Es_Critico'] else ""),
     axis=1
 )
