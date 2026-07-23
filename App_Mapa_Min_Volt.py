@@ -701,7 +701,6 @@ with tab1:
             - 🟢 {df_estado[df_estado['Es_Critico']].shape[0]} estados con ofertas excepcionales
             - 🟡 {df_estado[~df_estado['Es_Critico']].shape[0]} estados con precios estándar
             """)
-
 # ============================================
 # TAB 2: TRAZABILIDAD DE CLIENTES CON CINTURÓN LOGÍSTICO EN METROS
 # ============================================
@@ -765,25 +764,54 @@ with tab2:
     
     st.subheader("📍 Mapa de Conexiones entre Clientes")
     
-    df_clientes = df_filtrado.dropna(subset=['Longitud', 'Latitud'])
+    df_clientes = df_filtrado.dropna(subset=['Longitud', 'Latitud']).copy()
     
     q33, q66 = df_clientes['VOLT'].quantile([0.33, 0.66])
     df_clientes['Categoria_Precio'] = df_clientes['VOLT'].apply(
         lambda x: 'Bajo' if x <= q33 else 'Medio' if x <= q66 else 'Alto'
     )
     
-    fig_trazabilidad = px.scatter_mapbox(
-        df_clientes,
-        lat="Latitud", lon="Longitud",
-        color="Categoria_Precio",
-        color_discrete_map={'Bajo': '#2ECC40', 'Medio': '#FFD700', 'Alto': '#FF6B6B'},
-        size=[8] * len(df_clientes),
-        hover_data={'CIUDAD': True, 'GRUPO': True, 'VOLT': '$.2f', 
-                   'ESTADO': True, 'Folio Emetrix': True},
-        zoom=5, height=700,
-        center={"lat": df_clientes['Latitud'].mean(), 
-                "lon": df_clientes['Longitud'].mean()}
-    )
+    # ============================================
+    # MAPA DE CONEXIONES CON HOVER PERSONALIZADO
+    # ============================================
+    fig_trazabilidad = go.Figure()
+    
+    # Colores por categoría de precio
+    color_map = {'Bajo': '#2ECC40', 'Medio': '#FFD700', 'Alto': '#FF6B6B'}
+    
+    # Agregar puntos de clientes con hover personalizado
+    for categoria in ['Bajo', 'Medio', 'Alto']:
+        df_cat = df_clientes[df_clientes['Categoria_Precio'] == categoria]
+        if df_cat.empty:
+            continue
+            
+        fig_trazabilidad.add_trace(go.Scattermapbox(
+            lat=df_cat['Latitud'],
+            lon=df_cat['Longitud'],
+            mode='markers',
+            marker=dict(
+                size=10,
+                color=color_map[categoria],
+                opacity=0.85,
+                line=dict(width=1.5, color='white')
+            ),
+            name=categoria,
+            hovertemplate=(
+                "<b>🏢 %{customdata[0]}</b><br>" +
+                "📍 %{customdata[1]}<br>" +
+                "🗺️ %{customdata[2]}<br>" +
+                "💰 $%{customdata[3]:,.2f}<br>" +
+                "🎫 %{customdata[4]}<br>" +
+                "<extra></extra>"
+            ),
+            customdata=np.stack([
+                df_cat['GRUPO'].values,
+                df_cat['CIUDAD'].values,
+                df_cat['ESTADO'].values,
+                df_cat['VOLT'].values,
+                df_cat['Folio Emetrix'].values
+            ], axis=-1)
+        ))
     
     # ============================================
     # LÍNEAS DE CONEXIÓN CON TOOLTIP DE DISTANCIA EN METROS Y PRECIOS
@@ -818,7 +846,12 @@ with tab2:
             ))
     
     fig_trazabilidad.update_layout(
-        mapbox_style="carto-positron",
+        mapbox=dict(
+            style="carto-positron",
+            zoom=5,
+            center={"lat": df_clientes['Latitud'].mean(), 
+                    "lon": df_clientes['Longitud'].mean()}
+        ),
         margin={"r":0, "t":30, "l":0, "b":0},
         hoverlabel=dict(
             bgcolor="white",
@@ -827,7 +860,15 @@ with tab2:
             font_color="#2c3e50",
             bordercolor="#2c3e50"
         ),
-        legend=dict(title="Precio", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        legend=dict(
+            title=dict(text="Precio", font=dict(size=12)),
+            orientation="h", 
+            yanchor="bottom", 
+            y=1.02, 
+            xanchor="right", 
+            x=1
+        ),
+        height=700
     )
     
     st.plotly_chart(fig_trazabilidad, use_container_width=True)
