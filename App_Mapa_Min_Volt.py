@@ -83,6 +83,20 @@ def cargar_datos():
             df['REGIÓN'] = df['REGIÓN'].str.strip()
             df['REGIÓN'] = df['REGIÓN'].replace('', 'Sin región')
         
+        # Normalizar columna CIUDAD (puede venir como CIUDAD, Ciudad, ciudad, etc.)
+        ciudad_col = None
+        for col in df.columns:
+            if col.upper() == 'CIUDAD':
+                ciudad_col = col
+                break
+        
+        if ciudad_col and ciudad_col != 'CIUDAD':
+            df = df.rename(columns={ciudad_col: 'CIUDAD'})
+        elif ciudad_col is None:
+            df['CIUDAD'] = 'Sin ciudad'
+        
+        df['CIUDAD'] = df['CIUDAD'].fillna('Sin ciudad').str.strip()
+        
         if 'Longitud' in df.columns:
             df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
         if 'Latitud' in df.columns:
@@ -109,10 +123,10 @@ def cargar_geojson():
     return None
 
 # ============================================
-# FUNCIÓN DE TRAZABILIDAD OPTIMIZADA
+# FUNCIÓN DE TRAZABILIDAD OPTIMIZADA CON METROS
 # ============================================
 @st.cache_data
-def calcular_distancias_optimizado(df, distancia_max=100, top_n=5):
+def calcular_distancias_optimizado(df, distancia_max_km=100, top_n=5):
     if 'Longitud' not in df.columns or 'Latitud' not in df.columns:
         return pd.DataFrame()
     
@@ -131,7 +145,7 @@ def calcular_distancias_optimizado(df, distancia_max=100, top_n=5):
     
     a = np.sin(dlat/2)**2 + np.cos(lat[:, np.newaxis]) * np.cos(lat[np.newaxis, :]) * np.sin(dlon/2)**2
     c = 2 * np.arcsin(np.sqrt(a))
-    distancias = 6371 * c
+    distancias = 6371 * c  # km
     
     np.fill_diagonal(distancias, np.inf)
     
@@ -139,7 +153,7 @@ def calcular_distancias_optimizado(df, distancia_max=100, top_n=5):
     
     for i in range(n):
         distancias_i = distancias[i]
-        vecinos_validos = np.where((distancias_i <= distancia_max) & (distancias_i > 0))[0]
+        vecinos_validos = np.where((distancias_i <= distancia_max_km) & (distancias_i > 0))[0]
         
         if len(vecinos_validos) == 0:
             continue
@@ -149,6 +163,9 @@ def calcular_distancias_optimizado(df, distancia_max=100, top_n=5):
         top_indices = vecinos_validos[orden[:top_n]]
         
         for j in top_indices:
+            dist_km = float(distancias[i, j])
+            dist_m = dist_km * 1000  # Convertir a metros
+            
             conexiones.append({
                 'folio_origen': df_coords.iloc[i]['Folio Emetrix'],
                 'folio_destino': df_coords.iloc[j]['Folio Emetrix'],
@@ -160,7 +177,8 @@ def calcular_distancias_optimizado(df, distancia_max=100, top_n=5):
                 'latitud_origen': df_coords.iloc[i]['Latitud'],
                 'longitud_destino': df_coords.iloc[j]['Longitud'],
                 'latitud_destino': df_coords.iloc[j]['Latitud'],
-                'distancia_km': round(float(distancias[i, j]), 2),
+                'distancia_km': round(dist_km, 2),
+                'distancia_m': round(dist_m, 0),  # ← METROS
                 'precio_origen': df_coords.iloc[i]['VOLT'],
                 'precio_destino': df_coords.iloc[j]['VOLT'],
                 'estado_origen': df_coords.iloc[i]['ESTADO'],
@@ -180,7 +198,7 @@ if 'GRUPO' not in df.columns:
     df['GRUPO'] = df['Folio Emetrix']
 
 # ============================================
-# SIDEBAR - FILTROS
+# SIDEBAR - FILTROS (CON CIUDAD COMO MUNICIPIO)
 # ============================================
 st.sidebar.markdown("### 🔄 Actualización de Datos")
 if st.sidebar.button("🔄 Recargar Datos"):
@@ -196,9 +214,13 @@ regiones = sorted(regiones) if len(regiones) > 0 else []
 
 estados = sorted(df['ESTADO'].unique())
 grupos = sorted(df['GRUPO'].unique())
+# ← NUEVO: Filtro por CIUDAD renombrado a MUNICIPIO
+ciudades = sorted([c for c in df['CIUDAD'].unique() if c and c != 'Sin ciudad'])
 
 filtro_region = st.sidebar.selectbox("📌 Región", options=["Todas"] + regiones if regiones else ["Todas"])
 filtro_estado = st.sidebar.selectbox("📍 Estado", options=["Todos"] + estados)
+# ← RENOMBRADO A MUNICIPIO
+filtro_ciudad = st.sidebar.selectbox("🏙️ Municipio", options=["Todos"] + ciudades if ciudades else ["Todos"])
 filtro_grupo = st.sidebar.selectbox("🏢 Grupo/Cliente", options=["Todos"] + grupos)
 
 df_filtrado = df.copy()
@@ -207,6 +229,9 @@ if filtro_region != "Todas" and filtro_region:
     df_filtrado = df_filtrado[df_filtrado['REGIÓN'] == filtro_region]
 if filtro_estado != "Todos":
     df_filtrado = df_filtrado[df_filtrado['ESTADO'] == filtro_estado]
+# ← NUEVO FILTRO MUNICIPIO
+if filtro_ciudad != "Todos":
+    df_filtrado = df_filtrado[df_filtrado['CIUDAD'] == filtro_ciudad]
 if filtro_grupo != "Todos":
     df_filtrado = df_filtrado[df_filtrado['GRUPO'] == filtro_grupo]
 
@@ -225,9 +250,15 @@ tab1, tab2 = st.tabs(["📍 Mapa de Precios", "🔗 Trazabilidad de Clientes"])
 # TAB 1: MAPA DE PRECIOS
 # ============================================
 with tab1:
-    df_estado_min = df_filtrado.loc[df_filtrado.groupby('ESTADO')['VOLT'].idxmin()]
+    # ============================================
+    # CORRECCIÓN: ASEGURAR QUE VOLT_MINIMO SEA EL PRECIO MÍNIMO REAL POR ESTADO
+    # ============================================
+    df_estado_min = df_filtrado.loc[df_filtrado.groupby('ESTADO')['VOLT'].idxmin()].copy()
     df_estado = df_estado_min[['ESTADO', 'VOLT', 'GRUPO']].copy()
     df_estado.columns = ['ESTADO', 'Volt_minimo', 'Grupo']
+    
+    # Verificación: asegurar que Volt_minimo sea numérico
+    df_estado['Volt_minimo'] = pd.to_numeric(df_estado['Volt_minimo'], errors='coerce')
     
     if 'REGIÓN' in df_filtrado.columns:
         df_estado = df_estado.merge(
@@ -314,12 +345,12 @@ with tab1:
     )
     
     # ============================================
-    # HOVER CORREGIDO - ARRAY DE ARRAYS
+    # HOVER CORREGIDO - USAR VOLT_MINIMO EXPLÍCITAMENTE
     # ============================================
     df_estado['Hover_Texto'] = df_estado.apply(
         lambda row: f"<b>🏢 {row['Grupo']}</b><br>" +
                     f"<b>📍 {row['Estado_Mapa']}</b><br>" +
-                    f"💰 Precio: <b>${row['Volt_minimo']:,.2f}</b><br>" +
+                    f"💰 Precio Mínimo: <b>${row['Volt_minimo']:,.2f}</b><br>" +
                     f"📊 Tiendas: {row['Total_Tiendas']}" +
                     (f"<br>🗺️ Región: {row['REGIÓN']}" if 'REGIÓN' in row and pd.notna(row['REGIÓN']) and row['REGIÓN'] != 'Sin región' else "") +
                     ("<br>🔴 <b>¡PRECIO CRÍTICO!</b>" if row['Es_Critico'] else ""),
@@ -389,7 +420,7 @@ with tab1:
                 bgcolor="rgba(255,255,255,0.8)"
             ),
             hovertemplate="%{customdata[0]}<extra></extra>",
-            customdata=[[texto] for texto in df_estado['Hover_Texto'].values],  # ← ✅ CORREGIDO: lista de listas
+            customdata=[[texto] for texto in df_estado['Hover_Texto'].values],
             showscale=True
         ))
         
@@ -521,7 +552,7 @@ with tab1:
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
         
         # ============================================
-        # GRÁFICO DE ÁREA/LÍNEA CON BANDA DE PRECIOS Y SEMÁFORO
+        # GRÁFICO DE ÁREA/LÍNEA
         # ============================================
         st.subheader("📈 Curva de Precios por Clientes vs Objetivo")
         
@@ -672,7 +703,7 @@ with tab1:
             """)
 
 # ============================================
-# TAB 2: TRAZABILIDAD DE CLIENTES
+# TAB 2: TRAZABILIDAD DE CLIENTES CON CINTURÓN LOGÍSTICO EN METROS
 # ============================================
 with tab2:
     st.markdown("### 🔗 Trazabilidad de Clientes")
@@ -680,10 +711,18 @@ with tab2:
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📏 Filtros de Trazabilidad")
     
-    distancia_max = st.sidebar.slider(
-        "Distancia máxima (km)",
-        min_value=5, max_value=200, value=50, step=5
+    # ← NUEVO: Cinturón logístico en METROS
+    cinturon_m = st.sidebar.slider(
+        "📐 Cinturón logístico (metros)",
+        min_value=1000,      # 1 km
+        max_value=200000,    # 200 km
+        value=50000,         # 50 km default
+        step=1000,           # Incrementos de 1 km
+        format="%d m"
     )
+    
+    # Convertir a km para el cálculo interno
+    distancia_max_km = cinturon_m / 1000
     
     top_n_vecinos = st.sidebar.slider(
         "Máx. conexiones por cliente",
@@ -698,13 +737,13 @@ with tab2:
         st.warning("⚠️ No hay suficientes clientes con coordenadas")
         st.stop()
     
-    st.info(f"📍 {n_clientes} clientes con coordenadas. Calculando conexiones...")
+    st.info(f"📍 {n_clientes} clientes con coordenadas. Cinturón: {cinturon_m:,} m ({distancia_max_km:.1f} km). Calculando conexiones...")
     
     progress_bar = st.progress(0)
     
     df_conexiones = calcular_distancias_optimizado(
         df_filtrado, 
-        distancia_max=distancia_max,
+        distancia_max_km=distancia_max_km,
         top_n=top_n_vecinos
     )
     
@@ -713,7 +752,7 @@ with tab2:
     progress_bar.empty()
     
     if df_conexiones.empty:
-        st.warning(f"⚠️ No hay conexiones dentro de {distancia_max} km")
+        st.warning(f"⚠️ No hay conexiones dentro de {cinturon_m:,} metros")
         st.stop()
     
     col1, col2, col3, col4 = st.columns(4)
@@ -746,6 +785,9 @@ with tab2:
                 "lon": df_clientes['Longitud'].mean()}
     )
     
+    # ============================================
+    # LÍNEAS DE CONEXIÓN CON TOOLTIP DE DISTANCIA EN METROS Y PRECIOS
+    # ============================================
     if mostrar_lineas and not df_conexiones.empty:
         df_lineas = df_conexiones.nsmallest(min(200, len(df_conexiones)), 'distancia_km')
         
@@ -755,20 +797,36 @@ with tab2:
             elif diff < -5: color = 'rgba(255, 107, 107, 0.4)'
             else: color = 'rgba(52, 152, 219, 0.2)'
             
+            # ← NUEVO: Tooltip con distancia en METROS y precios
+            hover_text = (
+                f"<b>🔗 Conexión</b><br>"
+                f"📏 Distancia: <b>{row['distancia_m']:,.0f} m</b> ({row['distancia_km']:.2f} km)<br>"
+                f"🏢 {row['cliente_origen']} → {row['cliente_destino']}<br>"
+                f"💰 ${row['precio_origen']:.2f} → ${row['precio_destino']:.2f}<br>"
+                f"💱 Diferencia: ${diff:.2f}<br>"
+                f"📍 {row['ciudad_origen']} → {row['ciudad_destino']}"
+            )
+            
             fig_trazabilidad.add_trace(go.Scattermapbox(
                 lon=[row['longitud_origen'], row['longitud_destino']],
                 lat=[row['latitud_origen'], row['latitud_destino']],
                 mode='lines',
-                line=dict(width=1, color=color),
+                line=dict(width=1.5, color=color),
                 hoverinfo='text',
-                text=f"🔗 {row['distancia_km']:.1f} km<br>{row['cliente_origen']} → {row['cliente_destino']}",
+                text=hover_text,
                 showlegend=False
             ))
     
     fig_trazabilidad.update_layout(
         mapbox_style="carto-positron",
         margin={"r":0, "t":30, "l":0, "b":0},
-        hoverlabel=dict(bgcolor="white", font_size=12, font_family="Arial"),
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Arial",
+            font_color="#2c3e50",
+            bordercolor="#2c3e50"
+        ),
         legend=dict(title="Precio", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     
@@ -778,14 +836,16 @@ with tab2:
     
     df_tabla = df_conexiones[[
         'cliente_origen', 'cliente_destino', 'ciudad_origen', 'ciudad_destino',
-        'distancia_km', 'precio_origen', 'precio_destino', 'estado_origen', 'estado_destino'
+        'distancia_km', 'distancia_m', 'precio_origen', 'precio_destino', 
+        'estado_origen', 'estado_destino'
     ]].copy()
     df_tabla.columns = ['Origen', 'Destino', 'Ciudad Origen', 'Ciudad Destino',
-                        'Distancia (km)', 'Precio Origen', 'Precio Destino',
+                        'Distancia (km)', 'Distancia (m)', 'Precio Origen', 'Precio Destino',
                         'Estado Origen', 'Estado Destino']
     
     df_tabla['Precio Origen'] = df_tabla['Precio Origen'].apply(lambda x: f"${x:,.2f}")
     df_tabla['Precio Destino'] = df_tabla['Precio Destino'].apply(lambda x: f"${x:,.2f}")
+    df_tabla['Distancia (m)'] = df_tabla['Distancia (m)'].apply(lambda x: f"{x:,.0f}")
     
     po = df_tabla['Precio Origen'].str.replace('[$,]', '', regex=True).astype(float)
     pd_ = df_tabla['Precio Destino'].str.replace('[$,]', '', regex=True).astype(float)
@@ -799,10 +859,10 @@ with tab2:
         df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con)]
         
         if not df_aislados.empty:
-            st.warning(f"⚠️ {len(df_aislados)} clientes aislados")
+            st.warning(f"⚠️ {len(df_aislados)} clientes aislados (fuera del cinturón de {cinturon_m:,} m)")
             st.dataframe(df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']], use_container_width=True)
         else:
-            st.success("✅ Todos los clientes tienen conexiones")
+            st.success(f"✅ Todos los clientes tienen conexiones dentro del cinturón de {cinturon_m:,} m")
 
 # ============================================
 # FOOTER
