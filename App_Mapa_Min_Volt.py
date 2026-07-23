@@ -24,28 +24,14 @@ st.set_page_config(
 # ============================================
 st.markdown("""
     <style>
-    /* Ocultar el menú de hamburguesa (tres puntos arriba a la derecha) */
     #MainMenu {visibility: hidden;}
-    
-    /* Ocultar el icono de GitHub */
     .stAppDeployButton {display: none;}
-    
-    /* Ocultar el footer de "Made with Streamlit" */
     footer {visibility: hidden;}
-    
-    /* Ocultar la barra de herramientas de Streamlit */
     .stToolbar {visibility: hidden;}
-    
-    /* Ocultar el botón de compartir */
     .stApp a[href*="share.streamlit.io"] {display: none;}
-    
-    /* Ocultar elementos del header */
     header {visibility: hidden;}
-    
-    /* Ocultar el botón de deploy/github */
     button[kind="header"] {display: none;}
     
-    /* Estilos personalizados del título */
     .main-title {
         font-size: 32px;
         font-weight: bold;
@@ -328,21 +314,17 @@ with tab1:
     )
     
     # ============================================
-    # CREAR HOVER TEXT CORRECTAMENTE
+    # HOVER CORREGIDO - ARRAY DE ARRAYS
     # ============================================
-    hover_texts = []
-    for _, row in df_estado.iterrows():
-        hover = f"<b>{row['Estado_Mapa']}</b><br>"
-        hover += f"🏢 Grupo: {row['Grupo']}<br>"
-        hover += f"💰 Precio: <b>${row['Volt_minimo']:,.2f}</b><br>"
-        hover += f"📊 Tiendas: {row['Total_Tiendas']}"
-        if 'REGIÓN' in row and pd.notna(row['REGIÓN']) and row['REGIÓN'] != 'Sin región':
-            hover += f"<br>📍 Región: {row['REGIÓN']}"
-        if row['Es_Critico']:
-            hover += "<br>🔴 <b>¡PRECIO CRÍTICO!</b>"
-        hover_texts.append(hover)
-    
-    df_estado['Hover_Texto'] = hover_texts
+    df_estado['Hover_Texto'] = df_estado.apply(
+        lambda row: f"<b>🏢 {row['Grupo']}</b><br>" +
+                    f"<b>📍 {row['Estado_Mapa']}</b><br>" +
+                    f"💰 Precio: <b>${row['Volt_minimo']:,.2f}</b><br>" +
+                    f"📊 Tiendas: {row['Total_Tiendas']}" +
+                    (f"<br>🗺️ Región: {row['REGIÓN']}" if 'REGIÓN' in row and pd.notna(row['REGIÓN']) and row['REGIÓN'] != 'Sin región' else "") +
+                    ("<br>🔴 <b>¡PRECIO CRÍTICO!</b>" if row['Es_Critico'] else ""),
+        axis=1
+    )
     
     geojson_data = cargar_geojson()
     if geojson_data is None:
@@ -379,6 +361,9 @@ with tab1:
         
         fig = go.Figure()
         
+        # ============================================
+        # CHOROPLETH CON CUSTOMDATA CORREGIDO
+        # ============================================
         fig.add_trace(go.Choropleth(
             geojson=geojson_data,
             locations=df_estado['Estado_Mapa'],
@@ -403,8 +388,8 @@ with tab1:
                 tickfont=dict(size=12),
                 bgcolor="rgba(255,255,255,0.8)"
             ),
-            hovertemplate="%{customdata}<extra></extra>",
-            customdata=df_estado['Hover_Texto'].values,
+            hovertemplate="%{customdata[0]}<extra></extra>",
+            customdata=[[texto] for texto in df_estado['Hover_Texto'].values],  # ← ✅ CORREGIDO: lista de listas
             showscale=True
         ))
         
@@ -754,13 +739,8 @@ with tab2:
         color="Categoria_Precio",
         color_discrete_map={'Bajo': '#2ECC40', 'Medio': '#FFD700', 'Alto': '#FF6B6B'},
         size=[8] * len(df_clientes),
-        hover_data={
-            'CIUDAD': True, 
-            'GRUPO': True, 
-            'VOLT': '$.2f', 
-            'ESTADO': True, 
-            'Folio Emetrix': True
-        },
+        hover_data={'CIUDAD': True, 'GRUPO': True, 'VOLT': '$.2f', 
+                   'ESTADO': True, 'Folio Emetrix': True},
         zoom=5, height=700,
         center={"lat": df_clientes['Latitud'].mean(), 
                 "lon": df_clientes['Longitud'].mean()}
@@ -771,12 +751,9 @@ with tab2:
         
         for _, row in df_lineas.iterrows():
             diff = row['precio_origen'] - row['precio_destino']
-            if diff > 5: 
-                color = 'rgba(46, 204, 64, 0.4)'
-            elif diff < -5: 
-                color = 'rgba(255, 107, 107, 0.4)'
-            else: 
-                color = 'rgba(52, 152, 219, 0.2)'
+            if diff > 5: color = 'rgba(46, 204, 64, 0.4)'
+            elif diff < -5: color = 'rgba(255, 107, 107, 0.4)'
+            else: color = 'rgba(52, 152, 219, 0.2)'
             
             fig_trazabilidad.add_trace(go.Scattermapbox(
                 lon=[row['longitud_origen'], row['longitud_destino']],
@@ -799,23 +776,23 @@ with tab2:
     
     st.subheader("📊 Tabla de Conexiones")
     
-    df_tabla_conexiones = df_conexiones[[
+    df_tabla = df_conexiones[[
         'cliente_origen', 'cliente_destino', 'ciudad_origen', 'ciudad_destino',
         'distancia_km', 'precio_origen', 'precio_destino', 'estado_origen', 'estado_destino'
     ]].copy()
-    df_tabla_conexiones.columns = ['Origen', 'Destino', 'Ciudad Origen', 'Ciudad Destino',
+    df_tabla.columns = ['Origen', 'Destino', 'Ciudad Origen', 'Ciudad Destino',
                         'Distancia (km)', 'Precio Origen', 'Precio Destino',
                         'Estado Origen', 'Estado Destino']
     
-    df_tabla_conexiones['Precio Origen'] = df_tabla_conexiones['Precio Origen'].apply(lambda x: f"${x:,.2f}")
-    df_tabla_conexiones['Precio Destino'] = df_tabla_conexiones['Precio Destino'].apply(lambda x: f"${x:,.2f}")
+    df_tabla['Precio Origen'] = df_tabla['Precio Origen'].apply(lambda x: f"${x:,.2f}")
+    df_tabla['Precio Destino'] = df_tabla['Precio Destino'].apply(lambda x: f"${x:,.2f}")
     
-    po = df_tabla_conexiones['Precio Origen'].str.replace('[$,]', '', regex=True).astype(float)
-    pd_ = df_tabla_conexiones['Precio Destino'].str.replace('[$,]', '', regex=True).astype(float)
-    df_tabla_conexiones['Diferencia'] = (po - pd_).apply(lambda x: f"${x:,.2f}")
+    po = df_tabla['Precio Origen'].str.replace('[$,]', '', regex=True).astype(float)
+    pd_ = df_tabla['Precio Destino'].str.replace('[$,]', '', regex=True).astype(float)
+    df_tabla['Diferencia'] = (po - pd_).apply(lambda x: f"${x:,.2f}")
     
-    df_tabla_conexiones = df_tabla_conexiones.sort_values('Distancia (km)')
-    st.dataframe(df_tabla_conexiones, use_container_width=True, hide_index=True)
+    df_tabla = df_tabla.sort_values('Distancia (km)')
+    st.dataframe(df_tabla, use_container_width=True, hide_index=True)
     
     with st.expander("🔍 Clientes sin conexión"):
         folios_con = set(df_conexiones['folio_origen']) | set(df_conexiones['folio_destino'])
@@ -823,26 +800,9 @@ with tab2:
         
         if not df_aislados.empty:
             st.warning(f"⚠️ {len(df_aislados)} clientes aislados")
-            st.dataframe(df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']], use_container_width=True, hide_index=True)
+            st.dataframe(df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']], use_container_width=True)
         else:
             st.success("✅ Todos los clientes tienen conexiones")
-
-# ============================================
-# EXPORTAR DATOS
-# ============================================
-st.markdown("---")
-col1, col2, col3 = st.columns([1, 1, 1])
-
-with col2:
-    if 'df_conexiones' in locals() and not df_conexiones.empty:
-        csv = df_tabla_conexiones.to_csv(index=False)
-        st.download_button(
-            label="📥 Descargar Conexiones (CSV)",
-            data=csv,
-            file_name="conexiones_clientes.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
 
 # ============================================
 # FOOTER
