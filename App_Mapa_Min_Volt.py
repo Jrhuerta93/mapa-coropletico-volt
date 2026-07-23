@@ -802,12 +802,10 @@ with tab2:
             lat=df_cat['Latitud'].tolist(),
             lon=df_cat['Longitud'].tolist(),
             mode='markers',
-            marker=dict(
-                size=10,
-                color=color_map[categoria],
-                opacity=0.85,
-                line=dict(width=1.5, color='white')
-            ),
+marker=go.scattermapbox.Marker(
+    size=10,
+    color=color_map[categoria]
+),
             name=categoria,
             hovertext=hover_texts,
             hoverinfo='text'
