@@ -731,7 +731,18 @@ with tab2:
     
     mostrar_lineas = st.sidebar.checkbox("📊 Mostrar líneas de conexión", value=True)
     
-    n_clientes = len(df_filtrado.dropna(subset=['Longitud', 'Latitud']))
+    # ============================================
+    # ← NUEVO: SELECTOR DE CLIENTE ORIGEN
+    # ============================================
+    clientes_con_coords = df_filtrado.dropna(subset=['Longitud', 'Latitud'])
+    opciones_cliente = ["Todos los clientes"] + sorted(clientes_con_coords['GRUPO'].unique().tolist())
+    cliente_seleccionado = st.sidebar.selectbox(
+        "🎯 Cliente origen (opcional)",
+        options=opciones_cliente,
+        help="Selecciona un cliente específico para ver solo sus conexiones. 'Todos los clientes' muestra todas las conexiones del filtro actual."
+    )
+    
+    n_clientes = len(clientes_con_coords)
     
     if n_clientes < 2:
         st.warning("⚠️ No hay suficientes clientes con coordenadas")
@@ -741,19 +752,47 @@ with tab2:
     
     progress_bar = st.progress(0)
     
-    df_conexiones = calcular_distancias_optimizado(
-        df_filtrado, 
-        distancia_max_km=distancia_max_km,
-        top_n=top_n_vecinos
-    )
+    # ============================================
+    # ← NUEVO: FILTRAR POR CLIENTE SELECCIONADO
+    # ============================================
+    if cliente_seleccionado != "Todos los clientes":
+        # Filtrar solo el cliente seleccionado como origen
+        df_origen = df_filtrado[df_filtrado['GRUPO'] == cliente_seleccionado].copy()
+        if df_origen.empty:
+            st.warning(f"⚠️ El cliente '{cliente_seleccionado}' no tiene coordenadas")
+            st.stop()
+        # Usar df_filtrado completo para encontrar vecinos, pero calcular desde el origen
+        df_conexiones = calcular_distancias_optimizado(
+            df_filtrado, 
+            distancia_max_km=distancia_max_km,
+            top_n=top_n_vecinos
+        )
+        # Filtrar solo conexiones donde el origen es el cliente seleccionado
+        df_conexiones = df_conexiones[df_conexiones['cliente_origen'] == cliente_seleccionado].copy()
+    else:
+        df_conexiones = calcular_distancias_optimizado(
+            df_filtrado, 
+            distancia_max_km=distancia_max_km,
+            top_n=top_n_vecinos
+        )
     
     progress_bar.progress(100)
     time.sleep(0.3)
     progress_bar.empty()
     
     if df_conexiones.empty:
-        st.warning(f"⚠️ No hay conexiones dentro de {cinturon_m:,} metros")
+        if cliente_seleccionado != "Todos los clientes":
+            st.warning(f"⚠️ '{cliente_seleccionado}' no tiene conexiones dentro de {cinturon_m:,} metros")
+        else:
+            st.warning(f"⚠️ No hay conexiones dentro de {cinturon_m:,} metros")
         st.stop()
+    
+    # ============================================
+    # ← NUEVO: MOSTRAR INFO DEL CLIENTE SELECCIONADO
+    # ============================================
+    if cliente_seleccionado != "Todos los clientes":
+        df_info_origen = df_filtrado[df_filtrado['GRUPO'] == cliente_seleccionado].iloc[0]
+        st.success(f"🎯 Mostrando conexiones desde **{cliente_seleccionado}** | 📍 {df_info_origen['CIUDAD']}, {df_info_origen['ESTADO']} | 💰 ${df_info_origen['VOLT']:,.2f}")
     
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.metric("🔗 Conexiones", len(df_conexiones))
@@ -765,10 +804,21 @@ with tab2:
     
     st.subheader("📍 Mapa de Conexiones entre Clientes")
     
-    df_clientes = df_filtrado.dropna(subset=['Longitud', 'Latitud']).copy()
+    # ============================================
+    # ← NUEVO: DETERMINAR QUÉ CLIENTES MOSTRAR EN EL MAPA
+    # ============================================
+    if cliente_seleccionado != "Todos los clientes":
+        # Solo mostrar el cliente origen y sus destinos conectados
+        folios_destino = set(df_conexiones['folio_destino'].unique())
+        df_clientes_mapa = df_filtrado[
+            (df_filtrado['GRUPO'] == cliente_seleccionado) | 
+            (df_filtrado['Folio Emetrix'].isin(folios_destino))
+        ].dropna(subset=['Longitud', 'Latitud']).copy()
+    else:
+        df_clientes_mapa = df_filtrado.dropna(subset=['Longitud', 'Latitud']).copy()
     
-    q33, q66 = df_clientes['VOLT'].quantile([0.33, 0.66])
-    df_clientes['Categoria_Precio'] = df_clientes['VOLT'].apply(
+    q33, q66 = df_clientes_mapa['VOLT'].quantile([0.33, 0.66])
+    df_clientes_mapa['Categoria_Precio'] = df_clientes_mapa['VOLT'].apply(
         lambda x: 'Bajo' if x <= q33 else 'Medio' if x <= q66 else 'Alto'
     )
     
@@ -780,13 +830,43 @@ with tab2:
     # Colores por categoría de precio
     color_map = {'Bajo': '#2ECC40', 'Medio': '#FFD700', 'Alto': '#FF6B6B'}
     
-    # Agregar puntos de clientes con hover personalizado usando hovertext
+    # ← NUEVO: Color especial para el cliente origen seleccionado
+    if cliente_seleccionado != "Todos los clientes":
+        # Agregar el cliente origen con color especial (azul)
+        df_origen_mapa = df_clientes_mapa[df_clientes_mapa['GRUPO'] == cliente_seleccionado]
+        if not df_origen_mapa.empty:
+            hover_text_origen = (
+                f"<b>🎯 CLIENTE ORIGEN</b><br>"
+                f"<b>🏢 {df_origen_mapa.iloc[0]['GRUPO']}</b><br>"
+                f"📍 {df_origen_mapa.iloc[0]['CIUDAD']}<br>"
+                f"🗺️ {df_origen_mapa.iloc[0]['ESTADO']}<br>"
+                f"💰 ${df_origen_mapa.iloc[0]['VOLT']:,.2f}<br>"
+                f"🎫 {df_origen_mapa.iloc[0]['Folio Emetrix']}"
+            )
+            fig_trazabilidad.add_trace(go.Scattermapbox(
+                lat=[df_origen_mapa.iloc[0]['Latitud']],
+                lon=[df_origen_mapa.iloc[0]['Longitud']],
+                mode='markers',
+                marker=go.scattermapbox.Marker(
+                    size=16,
+                    color='#4285F4'
+                ),
+                name='🎯 Origen',
+                hovertext=[hover_text_origen],
+                hoverinfo='text'
+            ))
+        
+        # Agregar los destinos (excluyendo el origen)
+        df_destinos = df_clientes_mapa[df_clientes_mapa['GRUPO'] != cliente_seleccionado]
+    else:
+        df_destinos = df_clientes_mapa
+    
+    # Agregar puntos de destinos con hover personalizado
     for categoria in ['Bajo', 'Medio', 'Alto']:
-        df_cat = df_clientes[df_clientes['Categoria_Precio'] == categoria]
+        df_cat = df_destinos[df_destinos['Categoria_Precio'] == categoria]
         if df_cat.empty:
             continue
         
-        # Crear texto de hover personalizado para cada punto
         hover_texts = []
         for _, row in df_cat.iterrows():
             hover_text = (
@@ -802,10 +882,10 @@ with tab2:
             lat=df_cat['Latitud'].tolist(),
             lon=df_cat['Longitud'].tolist(),
             mode='markers',
-marker=go.scattermapbox.Marker(
-    size=10,
-    color=color_map[categoria]
-),
+            marker=go.scattermapbox.Marker(
+                size=10,
+                color=color_map[categoria]
+            ),
             name=categoria,
             hovertext=hover_texts,
             hoverinfo='text'
@@ -823,7 +903,6 @@ marker=go.scattermapbox.Marker(
             elif diff < -5: color = 'rgba(255, 107, 107, 0.4)'
             else: color = 'rgba(52, 152, 219, 0.2)'
             
-            # ← NUEVO: Tooltip con distancia en METROS y precios
             hover_text = (
                 f"<b>🔗 Conexión</b><br>"
                 f"📏 Distancia: <b>{row['distancia_m']:,.0f} m</b> ({row['distancia_km']:.2f} km)<br>"
@@ -843,12 +922,21 @@ marker=go.scattermapbox.Marker(
                 showlegend=False
             ))
     
+    # ← NUEVO: Centrar el mapa en el cliente origen si está seleccionado
+    if cliente_seleccionado != "Todos los clientes" and not df_origen_mapa.empty:
+        center_lat = df_origen_mapa.iloc[0]['Latitud']
+        center_lon = df_origen_mapa.iloc[0]['Longitud']
+        zoom_level = 12  # Zoom más cercano para ver el entorno
+    else:
+        center_lat = df_clientes_mapa['Latitud'].mean()
+        center_lon = df_clientes_mapa['Longitude'].mean() if 'Longitude' in df_clientes_mapa.columns else df_clientes_mapa['Longitud'].mean()
+        zoom_level = 5
+    
     fig_trazabilidad.update_layout(
         mapbox=dict(
             style="carto-positron",
-            zoom=5,
-            center={"lat": df_clientes['Latitud'].mean(), 
-                    "lon": df_clientes['Longitud'].mean()}
+            zoom=zoom_level,
+            center={"lat": center_lat, "lon": center_lon}
         ),
         margin={"r":0, "t":30, "l":0, "b":0},
         hoverlabel=dict(
@@ -894,14 +982,27 @@ marker=go.scattermapbox.Marker(
     st.dataframe(df_tabla, use_container_width=True, hide_index=True)
     
     with st.expander("🔍 Clientes sin conexión"):
-        folios_con = set(df_conexiones['folio_origen']) | set(df_conexiones['folio_destino'])
-        df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con)]
+        if cliente_seleccionado != "Todos los clientes":
+            # Cuando hay un cliente seleccionado, mostrar clientes del filtro que no son destino
+            folios_destino = set(df_conexiones['folio_destino'].unique())
+            df_aislados = df_filtrado[
+                (~df_filtrado['Folio Emetrix'].isin(folios_destino)) & 
+                (df_filtrado['GRUPO'] != cliente_seleccionado)
+            ]
+            mensaje = f"clientes del área que no son vecinos de '{cliente_seleccionado}'"
+        else:
+            folios_con = set(df_conexiones['folio_origen']) | set(df_conexiones['folio_destino'])
+            df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con)]
+            mensaje = f"clientes aislados (fuera del cinturón de {cinturon_m:,} m)"
         
         if not df_aislados.empty:
-            st.warning(f"⚠️ {len(df_aislados)} clientes aislados (fuera del cinturón de {cinturon_m:,} m)")
+            st.warning(f"⚠️ {len(df_aislados)} {mensaje}")
             st.dataframe(df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']], use_container_width=True)
         else:
-            st.success(f"✅ Todos los clientes tienen conexiones dentro del cinturón de {cinturon_m:,} m")
+            if cliente_seleccionado != "Todos los clientes":
+                st.success(f"✅ Todos los clientes del área son vecinos de '{cliente_seleccionado}'")
+            else:
+                st.success(f"✅ Todos los clientes tienen conexiones dentro del cinturón de {cinturon_m:,} m")
 
 # ============================================
 # FOOTER
