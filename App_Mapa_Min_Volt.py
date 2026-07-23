@@ -701,6 +701,7 @@ with tab1:
             - 🟢 {df_estado[df_estado['Es_Critico']].shape[0]} estados con ofertas excepcionales
             - 🟡 {df_estado[~df_estado['Es_Critico']].shape[0]} estados con precios estándar
             """)
+
 # ============================================
 # TAB 2: TRAZABILIDAD DE CLIENTES CON CINTURÓN LOGÍSTICO EN METROS
 # ============================================
@@ -779,15 +780,27 @@ with tab2:
     # Colores por categoría de precio
     color_map = {'Bajo': '#2ECC40', 'Medio': '#FFD700', 'Alto': '#FF6B6B'}
     
-    # Agregar puntos de clientes con hover personalizado
+    # Agregar puntos de clientes con hover personalizado usando hovertext
     for categoria in ['Bajo', 'Medio', 'Alto']:
         df_cat = df_clientes[df_clientes['Categoria_Precio'] == categoria]
         if df_cat.empty:
             continue
-            
+        
+        # Crear texto de hover personalizado para cada punto
+        hover_texts = []
+        for _, row in df_cat.iterrows():
+            hover_text = (
+                f"<b>🏢 {row['GRUPO']}</b><br>"
+                f"📍 {row['CIUDAD']}<br>"
+                f"🗺️ {row['ESTADO']}<br>"
+                f"💰 ${row['VOLT']:,.2f}<br>"
+                f"🎫 {row['Folio Emetrix']}"
+            )
+            hover_texts.append(hover_text)
+        
         fig_trazabilidad.add_trace(go.Scattermapbox(
-            lat=df_cat['Latitud'],
-            lon=df_cat['Longitud'],
+            lat=df_cat['Latitud'].tolist(),
+            lon=df_cat['Longitud'].tolist(),
             mode='markers',
             marker=dict(
                 size=10,
@@ -796,21 +809,8 @@ with tab2:
                 line=dict(width=1.5, color='white')
             ),
             name=categoria,
-            hovertemplate=(
-                "<b>🏢 %{customdata[0]}</b><br>" +
-                "📍 %{customdata[1]}<br>" +
-                "🗺️ %{customdata[2]}<br>" +
-                "💰 $%{customdata[3]:,.2f}<br>" +
-                "🎫 %{customdata[4]}<br>" +
-                "<extra></extra>"
-            ),
-            customdata=np.stack([
-                df_cat['GRUPO'].values,
-                df_cat['CIUDAD'].values,
-                df_cat['ESTADO'].values,
-                df_cat['VOLT'].values,
-                df_cat['Folio Emetrix'].values
-            ], axis=-1)
+            hovertext=hover_texts,
+            hoverinfo='text'
         ))
     
     # ============================================
@@ -840,8 +840,8 @@ with tab2:
                 lat=[row['latitud_origen'], row['latitud_destino']],
                 mode='lines',
                 line=dict(width=1.5, color=color),
+                hovertext=hover_text,
                 hoverinfo='text',
-                text=hover_text,
                 showlegend=False
             ))
     
