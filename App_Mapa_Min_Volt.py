@@ -31,7 +31,7 @@ st.markdown("""
     .stApp a[href*="share.streamlit.io"] {display: none;}
     header {visibility: hidden;}
     button[kind="header"] {display: none;}
-    
+
     .main-title {
         font-size: 32px;
         font-weight: bold;
@@ -72,36 +72,36 @@ def cargar_datos():
     try:
         df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
         df.columns = df.columns.str.strip()
-        
+
         if 'VOLT' in df.columns:
             df['VOLT'] = pd.to_numeric(df['VOLT'], errors='coerce').fillna(0.0)
-        
+
         if 'REGIÓN' not in df.columns:
             df['REGIÓN'] = 'Sin región'
         else:
             df['REGIÓN'] = df['REGIÓN'].fillna('Sin región')
             df['REGIÓN'] = df['REGIÓN'].str.strip()
             df['REGIÓN'] = df['REGIÓN'].replace('', 'Sin región')
-        
+
         # Normalizar columna CIUDAD (puede venir como CIUDAD, Ciudad, ciudad, etc.)
         ciudad_col = None
         for col in df.columns:
             if col.upper() == 'CIUDAD':
                 ciudad_col = col
                 break
-        
+
         if ciudad_col and ciudad_col != 'CIUDAD':
             df = df.rename(columns={ciudad_col: 'CIUDAD'})
         elif ciudad_col is None:
             df['CIUDAD'] = 'Sin ciudad'
-        
+
         df['CIUDAD'] = df['CIUDAD'].fillna('Sin ciudad').str.strip()
-        
+
         if 'Longitud' in df.columns:
             df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
         if 'Latitud' in df.columns:
             df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
-        
+
         return df
     except Exception as e:
         st.error(f"❌ Error al cargar datos: {e}")
@@ -129,43 +129,43 @@ def cargar_geojson():
 def calcular_distancias_optimizado(df, distancia_max_km=100, top_n=5):
     if 'Longitud' not in df.columns or 'Latitud' not in df.columns:
         return pd.DataFrame()
-    
+
     df_coords = df.dropna(subset=['Longitud', 'Latitud']).copy()
     if len(df_coords) < 2:
         return pd.DataFrame()
-    
+
     n = len(df_coords)
     coords_rad = np.radians(df_coords[['Latitud', 'Longitud']].values)
-    
+
     lat = coords_rad[:, 0]
     lon = coords_rad[:, 1]
-    
+
     dlat = lat[:, np.newaxis] - lat[np.newaxis, :]
     dlon = lon[:, np.newaxis] - lon[np.newaxis, :]
-    
+
     a = np.sin(dlat/2)**2 + np.cos(lat[:, np.newaxis]) * np.cos(lat[np.newaxis, :]) * np.sin(dlon/2)**2
     c = 2 * np.arcsin(np.sqrt(a))
     distancias = 6371 * c  # km
-    
+
     np.fill_diagonal(distancias, np.inf)
-    
+
     conexiones = []
-    
+
     for i in range(n):
         distancias_i = distancias[i]
         vecinos_validos = np.where((distancias_i <= distancia_max_km) & (distancias_i > 0))[0]
-        
+
         if len(vecinos_validos) == 0:
             continue
-        
+
         distancias_vecinos = distancias_i[vecinos_validos]
         orden = np.argsort(distancias_vecinos)
         top_indices = vecinos_validos[orden[:top_n]]
-        
+
         for j in top_indices:
             dist_km = float(distancias[i, j])
             dist_m = dist_km * 1000  # Convertir a metros
-            
+
             conexiones.append({
                 'folio_origen': df_coords.iloc[i]['Folio Emetrix'],
                 'folio_destino': df_coords.iloc[j]['Folio Emetrix'],
@@ -184,7 +184,7 @@ def calcular_distancias_optimizado(df, distancia_max_km=100, top_n=5):
                 'estado_origen': df_coords.iloc[i]['ESTADO'],
                 'estado_destino': df_coords.iloc[j]['ESTADO']
             })
-    
+
     return pd.DataFrame(conexiones)
 
 # ============================================
@@ -244,7 +244,7 @@ st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
 # ============================================
 # CREAR TABS
 # ============================================
-tab1, tab2 = st.tabs(["📍 Mapa de Precios", "🔗 Trazabilidad de Clientes"])
+tab1, tab2, tab3 = st.tabs(["📍 Mapa de Precios", "🔗 Trazabilidad de Clientes", "🏆 Top & Bottom por Región"])
 
 # ============================================
 # TAB 1: MAPA DE PRECIOS
@@ -256,19 +256,19 @@ with tab1:
     df_estado_min = df_filtrado.loc[df_filtrado.groupby('ESTADO')['VOLT'].idxmin()].copy()
     df_estado = df_estado_min[['ESTADO', 'VOLT', 'GRUPO']].copy()
     df_estado.columns = ['ESTADO', 'Volt_minimo', 'Grupo']
-    
+
     # Verificación: asegurar que Volt_minimo sea numérico
     df_estado['Volt_minimo'] = pd.to_numeric(df_estado['Volt_minimo'], errors='coerce')
-    
+
     if 'REGIÓN' in df_filtrado.columns:
         df_estado = df_estado.merge(
             df_filtrado[['ESTADO', 'REGIÓN']].drop_duplicates('ESTADO'), 
             on='ESTADO', how='left'
         )
-    
+
     tiendas_por_estado = df_filtrado.groupby('ESTADO').size().reset_index(name='Total_Tiendas')
     df_estado = df_estado.merge(tiendas_por_estado, on='ESTADO', how='left')
-    
+
     mapeo_estados = {
         'BAJA CALIFORNIA SUR': 'Baja California Sur',
         'CDMX': 'Ciudad de México',
@@ -279,7 +279,6 @@ with tab1:
         'EDO MEX': 'México',
         'ESTADO DE MEXICO': 'México',
         'ESTADO DE MÉXICO': 'México',
-        'MEXICO': 'México',
         'GUANAJUATO': 'Guanajuato',
         'HIDALGO': 'Hidalgo',
         'JALISCO': 'Jalisco',
@@ -315,9 +314,9 @@ with tab1:
         'YUCATAN': 'Yucatán',
         'ZACATECAS': 'Zacatecas'
     }
-    
+
     df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
-    
+
     def get_text_color(value, min_val, max_val):
         if max_val == min_val:
             return 'white'
@@ -326,25 +325,25 @@ with tab1:
             return 'white'
         else:
             return 'black'
-    
+
     precio_minimo_global = df_estado['Volt_minimo'].min()
     precio_maximo_global = df_estado['Volt_minimo'].max()
     rango_precio = precio_maximo_global - precio_minimo_global
-    
+
     umbral_critico = precio_minimo_global + (rango_precio * 0.25)
     df_estado['Es_Critico'] = df_estado['Volt_minimo'] <= umbral_critico
-    
+
     df_estado['Color_Texto'] = df_estado['Volt_minimo'].apply(
         lambda x: get_text_color(x, precio_minimo_global, precio_maximo_global)
     )
-    
+
     TAMANO_TEXTO = 9
-    
+
     df_estado['Texto_Mapa'] = df_estado.apply(
         lambda row: f"${row['Volt_minimo']:,.0f}" + ("🔴" if row['Es_Critico'] else ""),
         axis=1
     )
-    
+
     # ============================================
     # HOVER CORREGIDO - USAR VOLT_MINIMO EXPLÍCITAMENTE
     # ============================================
@@ -357,42 +356,42 @@ with tab1:
                     ("<br>🔴 <b>¡PRECIO CRÍTICO!</b>" if row['Es_Critico'] else ""),
         axis=1
     )
-    
+
     geojson_data = cargar_geojson()
     if geojson_data is None:
         st.error("❌ No se pudo cargar el archivo GeoJSON")
     else:
         st.markdown("### 📊 Resumen Ejecutivo")
         col1, col2, col3, col4, col5 = st.columns(5)
-        
+
         with col1:
             precio_min = df_filtrado['VOLT'].min()
             st.metric("💰 Precio más bajo", f"${precio_min:,.2f}")
-        
+
         with col2:
             precio_max = df_filtrado['VOLT'].max()
             st.metric("💸 Precio más alto", f"${precio_max:,.2f}")
-        
+
         with col3:
             precio_prom = df_filtrado['VOLT'].mean()
             st.metric("📊 Precio promedio", f"${precio_prom:,.2f}")
-        
+
         with col4:
             total_estados = len(df_estado)
             st.metric("📍 Estados activos", total_estados)
-        
+
         with col5:
             total_criticos = df_estado['Es_Critico'].sum()
             st.metric("🔴 Precios críticos", total_criticos)
-        
+
         st.markdown("---")
-        
+
         st.subheader("📍 Mapa de Precios Mínimos por Estado")
-        
+
         COLOR_SCALE = 'Blues'
-        
+
         fig = go.Figure()
-        
+
         # ============================================
         # CHOROPLETH CON CUSTOMDATA CORREGIDO
         # ============================================
@@ -424,7 +423,7 @@ with tab1:
             customdata=[[texto] for texto in df_estado['Hover_Texto'].values],
             showscale=True
         ))
-        
+
         def get_centroid(feature):
             try:
                 if feature['geometry']['type'] == 'Polygon':
@@ -442,18 +441,18 @@ with tab1:
             except:
                 return (None, None)
             return (None, None)
-        
+
         centroides = {}
         for feature in geojson_data['features']:
             name = feature['properties']['name']
             cent = get_centroid(feature)
             if cent[0] is not None:
                 centroides[name] = cent
-        
+
         df_estado['lon'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[0])
         df_estado['lat'] = df_estado['Estado_Mapa'].map(lambda x: centroides.get(x, (None, None))[1])
         df_con_coords = df_estado.dropna(subset=['lon', 'lat']).drop_duplicates(subset=['Estado_Mapa'])
-        
+
         for _, row in df_con_coords.iterrows():
             fig.add_trace(go.Scattergeo(
                 lon=[row['lon']],
@@ -470,7 +469,7 @@ with tab1:
                 hoverinfo='skip',
                 showlegend=False
             ))
-        
+
         df_criticos = df_con_coords[df_con_coords['Es_Critico']]
         if not df_criticos.empty:
             fig.add_trace(go.Scattergeo(
@@ -487,7 +486,7 @@ with tab1:
                 hoverinfo='skip',
                 showlegend=False
             ))
-        
+
         fig.update_geos(
             fitbounds="locations",
             visible=False,
@@ -501,7 +500,7 @@ with tab1:
             showcountries=False,
             showframe=False
         )
-        
+
         fig.update_layout(
             margin={"r":30, "t":30, "l":0, "b":30},
             height=750,
@@ -532,37 +531,37 @@ with tab1:
                 )
             ]
         )
-        
+
         st.plotly_chart(fig, use_container_width=True)
-        
+
         st.subheader("📊 Detalle por Estado")
-        
+
         df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico', 'REGIÓN']].copy()
         df_tabla.columns = ['Estado', 'Grupo con mejor precio', 'Precio Mínimo', 'Total Tiendas', 'Precio Crítico', 'Región']
         df_tabla = df_tabla.sort_values('Precio Mínimo', ascending=True)
-        
+
         df_tabla['Precio Mínimo'] = df_tabla['Precio Mínimo'].apply(lambda x: f"${x:,.2f}")
         df_tabla['Precio Crítico'] = df_tabla['Precio Crítico'].apply(lambda x: '🔴 Sí' if x else '')
-        
+
         def color_rows(row):
             if row['Precio Crítico'] == '🔴 Sí':
                 return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row)
             return [''] * len(row)
-        
+
         styled_df = df_tabla.style.apply(color_rows, axis=1)
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        
+
         # ============================================
         # GRÁFICO DE ÁREA/LÍNEA
         # ============================================
         st.subheader("📈 Curva de Precios por Clientes vs Objetivo")
-        
+
         df_linea = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo']].copy()
         df_linea.columns = ['Estado', 'Grupo', 'Precio']
         df_linea = df_linea.sort_values('Precio', ascending=True).reset_index(drop=True)
-        
+
         fig_linea = go.Figure()
-        
+
         for rango in RANGOS_SEMAFORO:
             fig_linea.add_hrect(
                 y0=rango['min'],
@@ -571,7 +570,7 @@ with tab1:
                 line_width=0,
                 layer="below"
             )
-        
+
         fig_linea.add_hline(
             y=PRECIO_OBJETIVO,
             line_dash="solid",
@@ -579,7 +578,7 @@ with tab1:
             line_width=2,
             layer="below"
         )
-        
+
         fig_linea.add_annotation(
             x=1.0,
             y=PRECIO_OBJETIVO,
@@ -596,7 +595,7 @@ with tab1:
             yanchor='bottom',
             xshift=10
         )
-        
+
         fig_linea.add_trace(go.Scatter(
             x=df_linea['Estado'],
             y=df_linea['Precio'],
@@ -611,10 +610,10 @@ with tab1:
             hovertemplate="<b>%{x}</b><br>💰 $%{y:,.2f}<br>🏢 %{customdata}<extra></extra>",
             customdata=df_linea['Grupo']
         ))
-        
+
         y_min = max(170, df_linea['Precio'].min() - 8)
         y_max = min(250, df_linea['Precio'].max() + 8)
-        
+
         fig_linea.update_yaxes(
             range=[y_min, y_max],
             dtick=5,
@@ -626,13 +625,13 @@ with tab1:
             zeroline=False,
             title=dict(text='Precio ($)', font=dict(size=11))
         )
-        
+
         fig_linea.update_xaxes(
             tickangle=-45,
             tickfont=dict(size=8),
             showgrid=False
         )
-        
+
         fig_linea.update_layout(
             title=dict(
                 text="Curva de Precios por Clientes vs Objetivo",
@@ -664,40 +663,40 @@ with tab1:
                 )
             ]
         )
-        
+
         st.plotly_chart(fig_linea, use_container_width=True)
-        
+
         st.markdown("---")
         st.subheader("📖 Insights y Storytelling")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             st.markdown(f"""
             ### 🎯 Precios Críticos Identificados
-            
+
             **Umbral de precio crítico:** ${umbral_critico:,.2f}
-            
+
             **Estados con precios críticos:**
             """)
-            
+
             criticos = df_estado[df_estado['Es_Critico']]
             if not criticos.empty:
                 for _, row in criticos.iterrows():
                     st.markdown(f"- **{row['Estado_Mapa']}**: ${row['Volt_minimo']:,.2f} ({row['Grupo']})")
             else:
                 st.markdown("*No hay precios críticos en el rango actual*")
-        
+
         with col2:
             st.markdown(f"""
             ### 📊 Análisis Estadístico
-            
+
             - **Precio más bajo:** ${precio_minimo_global:,.2f}
             - **Precio más alto:** ${precio_maximo_global:,.2f}
             - **Rango:** ${rango_precio:,.2f}
             - **Precio promedio:** ${df_estado['Volt_minimo'].mean():,.2f}
             - **Mediana:** ${df_estado['Volt_minimo'].median():,.2f}
-            
+
             **Oportunidades:**
             - 🟢 {df_estado[df_estado['Es_Critico']].shape[0]} estados con ofertas excepcionales
             - 🟡 {df_estado[~df_estado['Es_Critico']].shape[0]} estados con precios estándar
@@ -708,10 +707,10 @@ with tab1:
 # ============================================
 with tab2:
     st.markdown("### 🔗 Trazabilidad de Clientes")
-    
+
     st.sidebar.markdown("---")
     st.sidebar.markdown("### 📏 Filtros de Trazabilidad")
-    
+
     # ← NUEVO: Cinturón logístico en METROS
     cinturon_m = st.sidebar.slider(
         "📐 Cinturón logístico (metros)",
@@ -721,17 +720,17 @@ with tab2:
         step=1000,           # Incrementos de 1 km
         format="%d m"
     )
-    
+
     # Convertir a km para el cálculo interno
     distancia_max_km = cinturon_m / 1000
-    
+
     top_n_vecinos = st.sidebar.slider(
         "Máx. conexiones por cliente",
         min_value=1, max_value=10, value=3, step=1
     )
-    
+
     mostrar_lineas = st.sidebar.checkbox("📊 Mostrar líneas de conexión", value=True)
-    
+
     # ============================================
     # ← NUEVO: SELECTOR DE CLIENTE ORIGEN
     # ============================================
@@ -742,17 +741,17 @@ with tab2:
         options=opciones_cliente,
         help="Selecciona un cliente específico para ver solo sus conexiones. 'Todos los clientes' muestra todas las conexiones del filtro actual."
     )
-    
+
     n_clientes = len(clientes_con_coords)
-    
+
     if n_clientes < 2:
         st.warning("⚠️ No hay suficientes clientes con coordenadas")
         st.stop()
-    
+
     st.info(f"📍 {n_clientes} clientes con coordenadas. Cinturón: {cinturon_m:,} m ({distancia_max_km:.1f} km). Calculando conexiones...")
-    
+
     progress_bar = st.progress(0)
-    
+
     # ============================================
     # ← NUEVO: FILTRAR POR CLIENTE SELECCIONADO
     # ============================================
@@ -776,35 +775,35 @@ with tab2:
             distancia_max_km=distancia_max_km,
             top_n=top_n_vecinos
         )
-    
+
     progress_bar.progress(100)
     time.sleep(0.3)
     progress_bar.empty()
-    
+
     if df_conexiones.empty:
         if cliente_seleccionado != "Todos los clientes":
             st.warning(f"⚠️ '{cliente_seleccionado}' no tiene conexiones dentro de {cinturon_m:,} metros")
         else:
             st.warning(f"⚠️ No hay conexiones dentro de {cinturon_m:,} metros")
         st.stop()
-    
+
     # ============================================
     # ← NUEVO: MOSTRAR INFO DEL CLIENTE SELECCIONADO
     # ============================================
     if cliente_seleccionado != "Todos los clientes":
         df_info_origen = df_filtrado[df_filtrado['GRUPO'] == cliente_seleccionado].iloc[0]
         st.success(f"🎯 Mostrando conexiones desde **{cliente_seleccionado}** | 📍 {df_info_origen['CIUDAD']}, {df_info_origen['ESTADO']} | 💰 ${df_info_origen['VOLT']:,.2f}")
-    
+
     col1, col2, col3, col4 = st.columns(4)
     with col1: st.metric("🔗 Conexiones", len(df_conexiones))
     with col2: st.metric("📏 Dist. promedio", f"{df_conexiones['distancia_km'].mean():.2f} km")
     with col3: st.metric("📏 Dist. mínima", f"{df_conexiones['distancia_km'].min():.2f} km")
     with col4: st.metric("📏 Dist. máxima", f"{df_conexiones['distancia_km'].max():.2f} km")
-    
+
     st.markdown("---")
-    
+
     st.subheader("📍 Mapa de Conexiones entre Clientes")
-    
+
     # ============================================
     # ← NUEVO: DETERMINAR QUÉ CLIENTES MOSTRAR EN EL MAPA
     # ============================================
@@ -817,20 +816,20 @@ with tab2:
         ].dropna(subset=['Longitud', 'Latitud']).copy()
     else:
         df_clientes_mapa = df_filtrado.dropna(subset=['Longitud', 'Latitud']).copy()
-    
+
     q33, q66 = df_clientes_mapa['VOLT'].quantile([0.33, 0.66])
     df_clientes_mapa['Categoria_Precio'] = df_clientes_mapa['VOLT'].apply(
         lambda x: 'Bajo' if x <= q33 else 'Medio' if x <= q66 else 'Alto'
     )
-    
+
     # ============================================
     # MAPA DE CONEXIONES CON HOVER PERSONALIZADO
     # ============================================
     fig_trazabilidad = go.Figure()
-    
+
     # Colores por categoría de precio
     color_map = {'Bajo': '#2ECC40', 'Medio': '#FFD700', 'Alto': '#FF6B6B'}
-    
+
     # ← NUEVO: Color especial para el cliente origen seleccionado
     if cliente_seleccionado != "Todos los clientes":
         # Agregar el cliente origen con color especial (azul)
@@ -856,18 +855,18 @@ with tab2:
                 hovertext=[hover_text_origen],
                 hoverinfo='text'
             ))
-        
+
         # Agregar los destinos (excluyendo el origen)
         df_destinos = df_clientes_mapa[df_clientes_mapa['GRUPO'] != cliente_seleccionado]
     else:
         df_destinos = df_clientes_mapa
-    
+
     # Agregar puntos de destinos con hover personalizado
     for categoria in ['Bajo', 'Medio', 'Alto']:
         df_cat = df_destinos[df_destinos['Categoria_Precio'] == categoria]
         if df_cat.empty:
             continue
-        
+
         hover_texts = []
         for _, row in df_cat.iterrows():
             hover_text = (
@@ -878,7 +877,7 @@ with tab2:
                 f"🎫 {row['Folio Emetrix']}"
             )
             hover_texts.append(hover_text)
-        
+
         fig_trazabilidad.add_trace(go.Scattermapbox(
             lat=df_cat['Latitud'].tolist(),
             lon=df_cat['Longitud'].tolist(),
@@ -891,19 +890,19 @@ with tab2:
             hovertext=hover_texts,
             hoverinfo='text'
         ))
-    
+
     # ============================================
     # LÍNEAS DE CONEXIÓN CON TOOLTIP DE DISTANCIA EN METROS Y PRECIOS
     # ============================================
     if mostrar_lineas and not df_conexiones.empty:
         df_lineas = df_conexiones.nsmallest(min(200, len(df_conexiones)), 'distancia_km')
-        
+
         for _, row in df_lineas.iterrows():
             diff = row['precio_origen'] - row['precio_destino']
             if diff > 5: color = 'rgba(46, 204, 64, 0.4)'
             elif diff < -5: color = 'rgba(255, 107, 107, 0.4)'
             else: color = 'rgba(52, 152, 219, 0.2)'
-            
+
             hover_text = (
                 f"<b>🔗 Conexión</b><br>"
                 f"📏 Distancia: <b>{row['distancia_m']:,.0f} m</b> ({row['distancia_km']:.2f} km)<br>"
@@ -912,7 +911,7 @@ with tab2:
                 f"💱 Diferencia: ${diff:.2f}<br>"
                 f"📍 {row['ciudad_origen']} → {row['ciudad_destino']}"
             )
-            
+
             fig_trazabilidad.add_trace(go.Scattermapbox(
                 lon=[row['longitud_origen'], row['longitud_destino']],
                 lat=[row['latitud_origen'], row['latitud_destino']],
@@ -922,7 +921,7 @@ with tab2:
                 hoverinfo='text',
                 showlegend=False
             ))
-    
+
     # ← NUEVO: Centrar el mapa en el cliente origen si está seleccionado
     if cliente_seleccionado != "Todos los clientes" and not df_origen_mapa.empty:
         center_lat = df_origen_mapa.iloc[0]['Latitud']
@@ -932,7 +931,7 @@ with tab2:
         center_lat = df_clientes_mapa['Latitud'].mean()
         center_lon = df_clientes_mapa['Longitude'].mean() if 'Longitude' in df_clientes_mapa.columns else df_clientes_mapa['Longitud'].mean()
         zoom_level = 5
-    
+
     fig_trazabilidad.update_layout(
         mapbox=dict(
             style="carto-positron",
@@ -957,11 +956,11 @@ with tab2:
         ),
         height=700
     )
-    
+
     st.plotly_chart(fig_trazabilidad, use_container_width=True)
-    
+
     st.subheader("📊 Tabla de Conexiones")
-    
+
     df_tabla = df_conexiones[[
         'cliente_origen', 'cliente_destino', 'ciudad_origen', 'ciudad_destino',
         'distancia_km', 'distancia_m', 'precio_origen', 'precio_destino', 
@@ -970,18 +969,18 @@ with tab2:
     df_tabla.columns = ['Origen', 'Destino', 'Ciudad Origen', 'Ciudad Destino',
                         'Distancia (km)', 'Distancia (m)', 'Precio Origen', 'Precio Destino',
                         'Estado Origen', 'Estado Destino']
-    
+
     df_tabla['Precio Origen'] = df_tabla['Precio Origen'].apply(lambda x: f"${x:,.2f}")
     df_tabla['Precio Destino'] = df_tabla['Precio Destino'].apply(lambda x: f"${x:,.2f}")
     df_tabla['Distancia (m)'] = df_tabla['Distancia (m)'].apply(lambda x: f"{x:,.0f}")
-    
+
     po = df_tabla['Precio Origen'].str.replace('[$,]', '', regex=True).astype(float)
     pd_ = df_tabla['Precio Destino'].str.replace('[$,]', '', regex=True).astype(float)
     df_tabla['Diferencia'] = (po - pd_).apply(lambda x: f"${x:,.2f}")
-    
+
     df_tabla = df_tabla.sort_values('Distancia (km)')
     st.dataframe(df_tabla, use_container_width=True, hide_index=True)
-    
+
     with st.expander("🔍 Clientes sin conexión"):
         if cliente_seleccionado != "Todos los clientes":
             # Cuando hay un cliente seleccionado, mostrar clientes del filtro que no son destino
@@ -995,7 +994,7 @@ with tab2:
             folios_con = set(df_conexiones['folio_origen']) | set(df_conexiones['folio_destino'])
             df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con)]
             mensaje = f"clientes aislados (fuera del cinturón de {cinturon_m:,} m)"
-        
+
         if not df_aislados.empty:
             st.warning(f"⚠️ {len(df_aislados)} {mensaje}")
             st.dataframe(df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']], use_container_width=True)
@@ -1004,6 +1003,315 @@ with tab2:
                 st.success(f"✅ Todos los clientes del área son vecinos de '{cliente_seleccionado}'")
             else:
                 st.success(f"✅ Todos los clientes tienen conexiones dentro del cinturón de {cinturon_m:,} m")
+
+# ============================================
+# TAB 3: TOP & BOTTOM POR REGIÓN
+# ============================================
+with tab3:
+    st.markdown("### 🏆 Top & Bottom por Región")
+    st.markdown("Análisis de los clientes con precios más altos y más bajos por región.")
+
+    st.markdown("---")
+
+    # ============================================
+    # CONFIGURACIÓN DE FILTROS DEL TAB 3
+    # ============================================
+    col_filtro1, col_filtro2, col_filtro3 = st.columns(3)
+
+    with col_filtro1:
+        top_n_ranking = st.slider(
+            "📊 Top / Bottom N",
+            min_value=1,
+            max_value=20,
+            value=5,
+            step=1,
+            help="Cantidad de clientes a mostrar en Top y Bottom"
+        )
+
+    with col_filtro2:
+        regiones_disponibles = ["Todas"] + sorted([r for r in df_filtrado['REGIÓN'].unique() if r and r != 'Sin región'])
+        region_ranking = st.selectbox(
+            "🗺️ Filtrar por Región",
+            options=regiones_disponibles
+        )
+
+    with col_filtro3:
+        vista_ranking = st.radio(
+            "👁️ Vista",
+            options=["Ambos (Top + Bottom)", "Solo Top (Precios Altos)", "Solo Bottom (Precios Bajos)"],
+            horizontal=True
+        )
+
+    # Preparar datos para el ranking
+    df_ranking = df_filtrado[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD', 'Folio Emetrix']].copy()
+    df_ranking = df_ranking.dropna(subset=['VOLT', 'REGIÓN'])
+    df_ranking = df_ranking[df_ranking['REGIÓN'] != 'Sin región']
+
+    if region_ranking != "Todas":
+        df_ranking = df_ranking[df_ranking['REGIÓN'] == region_ranking]
+
+    if df_ranking.empty:
+        st.warning("⚠️ No hay datos suficientes para el ranking con los filtros seleccionados")
+        st.stop()
+
+    # ============================================
+    # RESUMEN POR REGIÓN
+    # ============================================
+    st.subheader("📈 Resumen Estadístico por Región")
+
+    df_resumen_region = df_ranking.groupby('REGIÓN').agg({
+        'VOLT': ['min', 'max', 'mean', 'median', 'count']
+    }).round(2)
+    df_resumen_region.columns = ['Precio Mínimo', 'Precio Máximo', 'Precio Promedio', 'Mediana', 'Total Clientes']
+    df_resumen_region = df_resumen_region.reset_index()
+    df_resumen_region = df_resumen_region.sort_values('Precio Promedio', ascending=False)
+
+    # Formatear moneda
+    for col in ['Precio Mínimo', 'Precio Máximo', 'Precio Promedio', 'Mediana']:
+        df_resumen_region[col] = df_resumen_region[col].apply(lambda x: f"${x:,.2f}")
+
+    st.dataframe(df_resumen_region, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ============================================
+    # GRÁFICO COMPARATIVO POR REGIÓN
+    # ============================================
+    st.subheader("📊 Comparativa de Precios por Región")
+
+    df_box = df_ranking.copy()
+
+    fig_box = px.box(
+        df_box,
+        x='REGIÓN',
+        y='VOLT',
+        color='REGIÓN',
+        points='all',
+        hover_data=['GRUPO', 'ESTADO', 'CIUDAD'],
+        labels={'VOLT': 'Precio ($)', 'REGIÓN': 'Región'},
+        height=500
+    )
+
+    fig_box.add_hline(
+        y=PRECIO_OBJETIVO,
+        line_dash="dash",
+        line_color="#1a1a2e",
+        line_width=2,
+        annotation_text=f"🎯 Objetivo: ${PRECIO_OBJETIVO}",
+        annotation_position="top right"
+    )
+
+    fig_box.update_layout(
+        showlegend=False,
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        yaxis_tickprefix='$',
+        yaxis_tickformat=',.0f'
+    )
+
+    st.plotly_chart(fig_box, use_container_width=True)
+
+    st.markdown("---")
+
+    # ============================================
+    # TOP Y BOTTOM POR REGIÓN
+    # ============================================
+
+    mostrar_top = vista_ranking in ["Ambos (Top + Bottom)", "Solo Top (Precios Altos)"]
+    mostrar_bottom = vista_ranking in ["Ambos (Top + Bottom)", "Solo Bottom (Precios Bajos)"]
+
+    if mostrar_top and mostrar_bottom:
+        col_top, col_bottom = st.columns(2)
+    else:
+        col_top = st.container()
+        col_bottom = st.container()
+
+    # --- TOP (PRECIOS MÁS ALTOS) ---
+    if mostrar_top:
+        with (col_top if mostrar_bottom else col_top):
+            st.subheader(f"🔥 Top {top_n_ranking} - Precios Más Altos")
+
+            df_top = df_ranking.nlargest(top_n_ranking, 'VOLT')[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD']].copy()
+            df_top = df_top.sort_values('VOLT', ascending=True)  # Para gráfico horizontal
+            df_top['Precio_Formato'] = df_top['VOLT'].apply(lambda x: f"${x:,.2f}")
+
+            # Gráfico de barras horizontales
+            fig_top = go.Figure()
+
+            fig_top.add_trace(go.Bar(
+                y=df_top['GRUPO'],
+                x=df_top['VOLT'],
+                orientation='h',
+                marker=dict(
+                    color=df_top['VOLT'],
+                    colorscale='Reds',
+                    line=dict(color='darkred', width=1)
+                ),
+                text=df_top['Precio_Formato'],
+                textposition='outside',
+                textfont=dict(size=11, color='#1a1a2e'),
+                hovertemplate=(
+                    "<b>%{y}</b><br>" +
+                    "💰 Precio: $%{x:,.2f}<br>" +
+                    "<extra></extra>"
+                )
+            ))
+
+            fig_top.add_vline(
+                x=PRECIO_OBJETIVO,
+                line_dash="dash",
+                line_color="#1a1a2e",
+                line_width=2
+            )
+
+            fig_top.add_annotation(
+                x=PRECIO_OBJETIVO,
+                y=df_top['GRUPO'].iloc[-1] if len(df_top) > 0 else 0,
+                text=f"🎯 ${PRECIO_OBJETIVO}",
+                showarrow=False,
+                font=dict(size=10, color="#1a1a2e"),
+                xanchor='left',
+                xshift=5
+            )
+
+            fig_top.update_layout(
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                xaxis=dict(
+                    title='Precio ($)',
+                    tickprefix='$',
+                    tickformat=',.0f',
+                    showgrid=True,
+                    gridcolor='rgba(0,0,0,0.06)'
+                ),
+                yaxis=dict(title=''),
+                height=max(300, len(df_top) * 50),
+                margin=dict(l=200, r=100, t=30, b=50)
+            )
+
+            st.plotly_chart(fig_top, use_container_width=True)
+
+            # Tabla detalle
+            df_top_tabla = df_top[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD']].copy()
+            df_top_tabla.columns = ['Cliente', 'Precio', 'Región', 'Estado', 'Ciudad']
+            df_top_tabla['Precio'] = df_top_tabla['Precio'].apply(lambda x: f"${x:,.2f}")
+            df_top_tabla = df_top_tabla.sort_values('Precio', ascending=False)
+
+            st.dataframe(df_top_tabla, use_container_width=True, hide_index=True)
+
+    # --- BOTTOM (PRECIOS MÁS BAJOS) ---
+    if mostrar_bottom:
+        with (col_bottom if mostrar_top else col_bottom):
+            st.subheader(f"❄️ Bottom {top_n_ranking} - Precios Más Bajos")
+
+            df_bottom = df_ranking.nsmallest(top_n_ranking, 'VOLT')[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD']].copy()
+            df_bottom = df_bottom.sort_values('VOLT', ascending=False)  # Para gráfico horizontal
+            df_bottom['Precio_Formato'] = df_bottom['VOLT'].apply(lambda x: f"${x:,.2f}")
+
+            # Gráfico de barras horizontales
+            fig_bottom = go.Figure()
+
+            fig_bottom.add_trace(go.Bar(
+                y=df_bottom['GRUPO'],
+                x=df_bottom['VOLT'],
+                orientation='h',
+                marker=dict(
+                    color=df_bottom['VOLT'],
+                    colorscale='Blues',
+                    line=dict(color='darkblue', width=1)
+                ),
+                text=df_bottom['Precio_Formato'],
+                textposition='outside',
+                textfont=dict(size=11, color='#1a1a2e'),
+                hovertemplate=(
+                    "<b>%{y}</b><br>" +
+                    "💰 Precio: $%{x:,.2f}<br>" +
+                    "<extra></extra>"
+                )
+            ))
+
+            fig_bottom.add_vline(
+                x=PRECIO_OBJETIVO,
+                line_dash="dash",
+                line_color="#1a1a2e",
+                line_width=2
+            )
+
+            fig_bottom.add_annotation(
+                x=PRECIO_OBJETIVO,
+                y=df_bottom['GRUPO'].iloc[0] if len(df_bottom) > 0 else 0,
+                text=f"🎯 ${PRECIO_OBJETIVO}",
+                showarrow=False,
+                font=dict(size=10, color="#1a1a2e"),
+                xanchor='left',
+                xshift=5
+            )
+
+            fig_bottom.update_layout(
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                xaxis=dict(
+                    title='Precio ($)',
+                    tickprefix='$',
+                    tickformat=',.0f',
+                    showgrid=True,
+                    gridcolor='rgba(0,0,0,0.06)'
+                ),
+                yaxis=dict(title=''),
+                height=max(300, len(df_bottom) * 50),
+                margin=dict(l=200, r=100, t=30, b=50)
+            )
+
+            st.plotly_chart(fig_bottom, use_container_width=True)
+
+            # Tabla detalle
+            df_bottom_tabla = df_bottom[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD']].copy()
+            df_bottom_tabla.columns = ['Cliente', 'Precio', 'Región', 'Estado', 'Ciudad']
+            df_bottom_tabla['Precio'] = df_bottom_tabla['Precio'].apply(lambda x: f"${x:,.2f}")
+            df_bottom_tabla = df_bottom_tabla.sort_values('Precio', ascending=True)
+
+            st.dataframe(df_bottom_tabla, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # ============================================
+    # RANKING COMPLETO POR REGIÓN
+    # ============================================
+    st.subheader("📋 Ranking Completo por Región")
+
+    regiones_ranking = sorted(df_ranking['REGIÓN'].unique())
+
+    for region in regiones_ranking:
+        with st.expander(f"🗺️ {region}"):
+            df_region = df_ranking[df_ranking['REGIÓN'] == region].copy()
+            df_region = df_region.sort_values('VOLT', ascending=False)
+
+            col_r1, col_r2, col_r3 = st.columns(3)
+            with col_r1:
+                st.metric("Clientes", len(df_region))
+            with col_r2:
+                st.metric("Precio Promedio", f"${df_region['VOLT'].mean():,.2f}")
+            with col_r3:
+                st.metric("Rango", f"${df_region['VOLT'].max() - df_region['VOLT'].min():,.2f}")
+
+            df_region_tabla = df_region[['GRUPO', 'VOLT', 'ESTADO', 'CIUDAD', 'Folio Emetrix']].copy()
+            df_region_tabla.columns = ['Cliente', 'Precio', 'Estado', 'Ciudad', 'Folio']
+            df_region_tabla['Precio'] = df_region_tabla['Precio'].apply(lambda x: f"${x:,.2f}")
+
+            # Destacar top y bottom dentro de la región
+            def color_region_rows(row):
+                precio_val = float(row['Precio'].replace('$', '').replace(',', ''))
+                max_precio = df_region['VOLT'].max()
+                min_precio = df_region['VOLT'].min()
+
+                if precio_val == max_precio:
+                    return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row)
+                elif precio_val == min_precio:
+                    return ['background-color: #4285F4; color: white; font-weight: bold'] * len(row)
+                return [''] * len(row)
+
+            styled_region = df_region_tabla.style.apply(color_region_rows, axis=1)
+            st.dataframe(styled_region, use_container_width=True, hide_index=True)
 
 # ============================================
 # FOOTER
