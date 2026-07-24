@@ -279,6 +279,7 @@ with tab1:
         'EDO MEX': 'México',
         'ESTADO DE MEXICO': 'México',
         'ESTADO DE MÉXICO': 'México',
+        'MEXICO': 'México',
         'GUANAJUATO': 'Guanajuato',
         'HIDALGO': 'Hidalgo',
         'JALISCO': 'Jalisco',
