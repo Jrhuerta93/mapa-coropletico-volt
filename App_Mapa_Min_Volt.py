@@ -71,7 +71,7 @@ def cargar_datos():
         df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
         df.columns = df.columns.str.strip()
 
-        # Asegurar columnas críticas
+        # Asegurar columnas críticas para evitar KeyError
         if 'Folio Emetrix' not in df.columns:
             df['Folio Emetrix'] = 'TIENDA_' + df.index.astype(str)
         
@@ -117,8 +117,8 @@ def cargar_geojson():
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 return response.json()
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo cargar GeoJSON desde URL: {e}")
     return None
 
 @st.cache_data
@@ -273,7 +273,7 @@ with tab1:
 
     geojson_data = cargar_geojson()
     if geojson_data is None:
-        st.error("❌ No se pudo cargar el archivo GeoJSON")
+        st.error("❌ No se pudo cargar el archivo GeoJSON. Asegúrate de tener conexión a internet o el archivo 'mexico.json' en la carpeta.")
     else:
         st.markdown("### 📊 Resumen Ejecutivo")
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -336,13 +336,14 @@ with tab1:
         df_tabla = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo', 'Total_Tiendas', 'Es_Critico', 'REGIÓN']].copy()
         df_tabla.columns = ['Estado', 'Grupo con mejor precio', 'Precio Mínimo', 'Total Tiendas', 'Precio Crítico', 'Región']
         df_tabla = df_tabla.sort_values('Precio Mínimo', ascending=True)
-        df_tabla['Precio Mínimo'] = df_tabla['Precio Mínimo'].apply(lambda x: f"${x:,.2f}")
         df_tabla['Precio Crítico'] = df_tabla['Precio Crítico'].apply(lambda x: '🔴 Sí' if x else '')
         
         def color_rows(row):
             return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row) if row['Precio Crítico'] == '🔴 Sí' else [''] * len(row)
         
-        st.dataframe(df_tabla.style.apply(color_rows, axis=1), use_container_width=True, hide_index=True)
+        # Usamos .format() para mantener el dato numérico y evitar errores de KeyError
+        styled_df = df_tabla.style.apply(color_rows, axis=1).format({'Precio Mínimo': '${:,.2f}'})
+        st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
         # Curva de Precios
         st.subheader("📈 Curva de Precios por Clientes vs Objetivo")
@@ -492,24 +493,33 @@ with tab2:
     st.plotly_chart(fig_trazabilidad, use_container_width=True)
 
     st.subheader("📊 Tabla de Conexiones")
-    df_tabla_con = df_conexiones[['cliente_origen', 'cliente_destino', 'ciudad_origen', 'ciudad_destino', 'distancia_km', 'distancia_m', 'precio_origen', 'precio_destino', 'estado_origen', 'estado_destino']].copy()
-    df_tabla_con.columns = ['Origen', 'Destino', 'Ciudad Origen', 'Ciudad Destino', 'Distancia (km)', 'Distancia (m)', 'Precio Origen', 'Precio Destino', 'Estado Origen', 'Estado Destino']
-    df_tabla_con['Precio Origen'] = df_tabla_con['Precio Origen'].apply(lambda x: f"${x:,.2f}")
-    df_tabla_con['Precio Destino'] = df_tabla_con['Precio Destino'].apply(lambda x: f"${x:,.2f}")
-    df_tabla_con['Distancia (m)'] = df_tabla_con['Distancia (m)'].apply(lambda x: f"{x:,.0f}")
+    df_tabla_con = df_conexiones[[
+        'cliente_origen', 'cliente_destino', 'ciudad_origen', 'ciudad_destino',
+        'distancia_km', 'distancia_m', 'precio_origen', 'precio_destino', 
+        'estado_origen', 'estado_destino'
+    ]].copy()
+    df_tabla_con.columns = ['Origen', 'Destino', 'Ciudad Origen', 'Ciudad Destino',
+                            'Distancia (km)', 'Distancia (m)', 'Precio Origen', 'Precio Destino',
+                            'Estado Origen', 'Estado Destino']
+
+    df_tabla_con['Diferencia'] = df_tabla_con['Precio Origen'] - df_tabla_con['Precio Destino']
+
+    # Usamos .format() nativo para evitar conversiones manuales propensas a error
+    styled_con = df_tabla_con.style.format({
+        'Precio Origen': '${:,.2f}',
+        'Precio Destino': '${:,.2f}',
+        'Diferencia': '${:,.2f}',
+        'Distancia (m)': '{:,.0f}'
+    })
     
-    po = df_tabla_con['Precio Origen'].str.replace('[$,]', '', regex=True).astype(float)
-    pd_ = df_tabla_con['Precio Destino'].str.replace('[$,]', '', regex=True).astype(float)
-    df_tabla_con['Diferencia'] = (po - pd_).apply(lambda x: f"${x:,.2f}")
-    
-    st.dataframe(df_tabla_con.sort_values('Distancia (km)'), use_container_width=True, hide_index=True)
+    st.dataframe(styled_con.sort_values('Distancia (km)'), use_container_width=True, hide_index=True)
 
     with st.expander("🔍 Clientes sin conexión"):
         folios_con = set(df_conexiones['folio_origen']) | set(df_conexiones['folio_destino'])
         df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con)]
         if not df_aislados.empty:
             st.warning(f"⚠️ {len(df_aislados)} clientes aislados (fuera del cinturón de {cinturon_m:,} m)")
-            st.dataframe(df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']], use_container_width=True)
+            st.dataframe(df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']], use_container_width=True, hide_index=True)
         else:
             st.success(f"✅ Todos los clientes tienen conexiones dentro del cinturón de {cinturon_m:,} m")
 
@@ -544,9 +554,14 @@ with tab3:
     df_resumen_region = df_ranking.groupby('REGIÓN').agg({'VOLT': ['min', 'max', 'mean', 'median', 'count']}).round(2)
     df_resumen_region.columns = ['Precio Mínimo', 'Precio Máximo', 'Precio Promedio', 'Mediana', 'Total Clientes']
     df_resumen_region = df_resumen_region.reset_index().sort_values('Precio Promedio', ascending=False)
-    for col in ['Precio Mínimo', 'Precio Máximo', 'Precio Promedio', 'Mediana']:
-        df_resumen_region[col] = df_resumen_region[col].apply(lambda x: f"${x:,.2f}")
-    st.dataframe(df_resumen_region, use_container_width=True, hide_index=True)
+    
+    styled_resumen = df_resumen_region.style.format({
+        'Precio Mínimo': '${:,.2f}',
+        'Precio Máximo': '${:,.2f}',
+        'Precio Promedio': '${:,.2f}',
+        'Mediana': '${:,.2f}'
+    })
+    st.dataframe(styled_resumen, use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.subheader("📊 Comparativa de Precios por Región")
@@ -568,43 +583,25 @@ with tab3:
         with col_top:
             st.subheader(f"🔥 Top {top_n_ranking} - Precios Más Altos")
             df_top = df_ranking.nlargest(top_n_ranking, 'VOLT')[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD']].copy().sort_values('VOLT', ascending=True)
-            df_top['Precio_Formato'] = df_top['VOLT'].apply(lambda x: f"${x:,.2f}")
             
-            fig_top = go.Figure()
-            fig_top.add_trace(go.Bar(y=df_top['GRUPO'], x=df_top['VOLT'], orientation='h', marker=dict(color=df_top['VOLT'], colorscale='Reds', line=dict(color='darkred', width=1)),
-                text=df_top['Precio_Formato'], textposition='outside', textfont=dict(size=11, color='#1a1a2e'), hovertemplate="<b>%{y}</b><br>💰 Precio: $%{x:,.2f}<br><extra></extra>"))
-            fig_top.add_vline(x=PRECIO_OBJETIVO, line_dash="dash", line_color="#1a1a2e", line_width=2)
-            fig_top.update_layout(plot_bgcolor='white', paper_bgcolor='white', xaxis=dict(title='Precio ($)', tickprefix='$', tickformat=',.0f', showgrid=True, gridcolor='rgba(0,0,0,0.06)'), yaxis=dict(title=''), height=max(300, len(df_top) * 50), margin=dict(l=200, r=100, t=30, b=50))
-            st.plotly_chart(fig_top, use_container_width=True)
-            
-            df_top_tabla = df_top[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD']].copy()
-            df_top_tabla.columns = ['Cliente', 'Precio', 'Región', 'Estado', 'Ciudad']
-            df_top_tabla['Precio'] = df_top_tabla['Precio'].apply(lambda x: f"${x:,.2f}")
-            st.dataframe(df_top_tabla.sort_values('Precio', ascending=False), use_container_width=True, hide_index=True)
+            styled_top = df_top.style.format({'VOLT': '${:,.2f}'})
+            st.plotly_chart(go.Figure(data=[go.Bar(y=df_top['GRUPO'], x=df_top['VOLT'], orientation='h', marker=dict(color=df_top['VOLT'], colorscale='Reds'), hovertemplate="<b>%{y}</b><br>💰 $%{x:,.2f}<br><extra></extra>")]).update_layout(plot_bgcolor='white', xaxis=dict(tickprefix='$'), height=max(300, len(df_top) * 50), margin=dict(l=200, r=50, t=30, b=50)), use_container_width=True)
+            st.dataframe(styled_top.rename(columns={'VOLT': 'Precio'}), use_container_width=True, hide_index=True)
 
     if mostrar_bottom:
         with col_bottom:
             st.subheader(f"❄️ Bottom {top_n_ranking} - Precios Más Bajos")
             df_bottom = df_ranking.nsmallest(top_n_ranking, 'VOLT')[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD']].copy().sort_values('VOLT', ascending=False)
-            df_bottom['Precio_Formato'] = df_bottom['VOLT'].apply(lambda x: f"${x:,.2f}")
             
-            fig_bottom = go.Figure()
-            fig_bottom.add_trace(go.Bar(y=df_bottom['GRUPO'], x=df_bottom['VOLT'], orientation='h', marker=dict(color=df_bottom['VOLT'], colorscale='Blues', line=dict(color='darkblue', width=1)),
-                text=df_bottom['Precio_Formato'], textposition='outside', textfont=dict(size=11, color='#1a1a2e'), hovertemplate="<b>%{y}</b><br>💰 Precio: $%{x:,.2f}<br><extra></extra>"))
-            fig_bottom.add_vline(x=PRECIO_OBJETIVO, line_dash="dash", line_color="#1a1a2e", line_width=2)
-            fig_bottom.update_layout(plot_bgcolor='white', paper_bgcolor='white', xaxis=dict(title='Precio ($)', tickprefix='$', tickformat=',.0f', showgrid=True, gridcolor='rgba(0,0,0,0.06)'), yaxis=dict(title=''), height=max(300, len(df_bottom) * 50), margin=dict(l=200, r=100, t=30, b=50))
-            st.plotly_chart(fig_bottom, use_container_width=True)
-            
-            df_bottom_tabla = df_bottom[['GRUPO', 'VOLT', 'REGIÓN', 'ESTADO', 'CIUDAD']].copy()
-            df_bottom_tabla.columns = ['Cliente', 'Precio', 'Región', 'Estado', 'Ciudad']
-            df_bottom_tabla['Precio'] = df_bottom_tabla['Precio'].apply(lambda x: f"${x:,.2f}")
-            st.dataframe(df_bottom_tabla.sort_values('Precio', ascending=True), use_container_width=True, hide_index=True)
+            styled_bottom = df_bottom.style.format({'VOLT': '${:,.2f}'})
+            st.plotly_chart(go.Figure(data=[go.Bar(y=df_bottom['GRUPO'], x=df_bottom['VOLT'], orientation='h', marker=dict(color=df_bottom['VOLT'], colorscale='Blues'), hovertemplate="<b>%{y}</b><br>💰 $%{x:,.2f}<br><extra></extra>")]).update_layout(plot_bgcolor='white', xaxis=dict(tickprefix='$'), height=max(300, len(df_bottom) * 50), margin=dict(l=200, r=50, t=30, b=50)), use_container_width=True)
+            st.dataframe(styled_bottom.rename(columns={'VOLT': 'Precio'}), use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.subheader("📋 Ranking Completo por Región")
     for region in sorted(df_ranking['REGIÓN'].unique()):
         with st.expander(f"🗺️ {region}"):
-            df_region = df_ranking[df_ranking['REGIÓN'] == region].copy().sort_values('VOLT', ascending=False)
+            df_region = df_region = df_ranking[df_ranking['REGIÓN'] == region].copy().sort_values('VOLT', ascending=False)
             col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1: st.metric("Clientes", len(df_region))
             with col_r2: st.metric("Precio Promedio", f"${df_region['VOLT'].mean():,.2f}")
@@ -612,19 +609,24 @@ with tab3:
             
             df_region_tabla = df_region[['GRUPO', 'VOLT', 'ESTADO', 'CIUDAD', 'Folio Emetrix']].copy()
             df_region_tabla.columns = ['Cliente', 'Precio', 'Estado', 'Ciudad', 'Folio']
-            df_region_tabla['Precio_Str'] = df_region_tabla['Precio'].apply(lambda x: f"${x:,.2f}")
             
+            # Función corregida: accede a 'Precio' que sigue siendo numérico
             def color_region_rows(row):
-                precio_val = float(str(row['Precio']).replace('$', '').replace(',', ''))
+                precio_val = row['Precio']
                 max_precio = df_region['VOLT'].max()
                 min_precio = df_region['VOLT'].min()
-                if precio_val == max_precio: return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row)
-                elif precio_val == min_precio: return ['background-color: #4285F4; color: white; font-weight: bold'] * len(row)
+                if precio_val == max_precio: 
+                    return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row)
+                elif precio_val == min_precio: 
+                    return ['background-color: #4285F4; color: white; font-weight: bold'] * len(row)
                 return [''] * len(row)
             
-            # Aplicar estilo solo a las columnas visibles
-            display_cols = ['Cliente', 'Precio_Str', 'Estado', 'Ciudad', 'Folio']
-            styled_region = df_region_tabla[display_cols].style.apply(color_region_rows, axis=1)
+            # Aplicamos estilo y luego formateamos la columna para visualización
+            styled_region = (
+                df_region_tabla.style
+                .apply(color_region_rows, axis=1)
+                .format({'Precio': '${:,.2f}'})
+            )
             st.dataframe(styled_region, use_container_width=True, hide_index=True)
 
 # ============================================
