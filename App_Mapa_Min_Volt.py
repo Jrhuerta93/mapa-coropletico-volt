@@ -97,6 +97,52 @@ def cargar_datos():
 
         df['CIUDAD'] = df['CIUDAD'].fillna('Sin ciudad').str.strip()
 
+        # ← NUEVO: Normalizar columna CADENA (busca CADENA, Cadena, cadena, etc.)
+        cadena_col = None
+        for col in df.columns:
+            if col.upper() == 'CADENA':
+                cadena_col = col
+                break
+        
+        if cadena_col and cadena_col != 'CADENA':
+            df = df.rename(columns={cadena_col: 'CADENA'})
+        elif cadena_col is None:
+            df['CADENA'] = 'Sin cadena'
+        
+        if 'CADENA' in df.columns:
+            df['CADENA'] = df['CADENA'].fillna('Sin cadena').str.strip()
+            df['CADENA'] = df['CADENA'].replace('', 'Sin cadena')
+
+        # ← NUEVO: Normalizar columna PERIODO (busca PERIODO, Periodo, periodo, FECHA, etc.)
+        periodo_col = None
+        for col in df.columns:
+            if col.upper() in ['PERIODO', 'PERÍODO', 'PERIODO']:
+                periodo_col = col
+                break
+        
+        if periodo_col and periodo_col != 'PERIODO':
+            df = df.rename(columns={periodo_col: 'PERIODO'})
+        elif periodo_col is None:
+            # Intentar con FECHA
+            for col in df.columns:
+                if col.upper() in ['FECHA', 'DATE', 'MES', 'AÑO', 'PERIODO']:
+                    periodo_col = col
+                    break
+            if periodo_col and periodo_col != 'PERIODO':
+                df = df.rename(columns={periodo_col: 'PERIODO'})
+            elif periodo_col is None:
+                df['PERIODO'] = 'Sin periodo'
+
+        if 'PERIODO' in df.columns:
+            df['PERIODO'] = df['PERIODO'].fillna('Sin periodo')
+            # Si es fecha, convertir a string para el selectbox
+            if pd.api.types.is_datetime64_any_dtype(df['PERIODO']):
+                df['PERIODO'] = df['PERIODO'].dt.strftime('%Y-%m-%d')
+            else:
+                df['PERIODO'] = df['PERIODO'].astype(str).str.strip()
+                df['PERIODO'] = df['PERIODO'].replace('', 'Sin periodo')
+                df['PERIODO'] = df['PERIODO'].replace('nan', 'Sin periodo')
+
         if 'Longitud' in df.columns:
             df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
         if 'Latitud' in df.columns:
@@ -198,7 +244,7 @@ if 'GRUPO' not in df.columns:
     df['GRUPO'] = df['Folio Emetrix']
 
 # ============================================
-# SIDEBAR - FILTROS
+# SIDEBAR - FILTROS (CON CADENA Y PERIODO NUEVOS)
 # ============================================
 st.sidebar.markdown("### 🔄 Actualización de Datos")
 if st.sidebar.button("🔄 Recargar Datos"):
@@ -216,9 +262,38 @@ estados = sorted(df['ESTADO'].unique())
 grupos = sorted(df['GRUPO'].unique())
 ciudades = sorted([c for c in df['CIUDAD'].unique() if c and c != 'Sin ciudad'])
 
+# ← NUEVO: Preparar opciones de CADENA
+tiene_cadena = 'CADENA' in df.columns
+cadenas = []
+if tiene_cadena:
+    cadenas = sorted([c for c in df['CADENA'].unique() if c and c != 'Sin cadena'])
+
+# ← NUEVO: Preparar opciones de PERIODO
+tiene_periodo = 'PERIODO' in df.columns
+periodos = []
+if tiene_periodo:
+    periodos = sorted([p for p in df['PERIODO'].unique() if p and p != 'Sin periodo'])
+
 filtro_region = st.sidebar.selectbox("📌 Región", options=["Todas"] + regiones if regiones else ["Todas"])
 filtro_estado = st.sidebar.selectbox("📍 Estado", options=["Todos"] + estados)
 filtro_ciudad = st.sidebar.selectbox("🏙️ Municipio", options=["Todos"] + ciudades if ciudades else ["Todos"])
+
+# ← NUEVO: Filtro de CADENA
+if tiene_cadena and len(cadenas) > 0:
+    filtro_cadena = st.sidebar.selectbox("🏪 Cadena", options=["Todas"] + cadenas)
+else:
+    filtro_cadena = "Todas"
+    if tiene_cadena:
+        st.sidebar.info("ℹ️ No hay cadenas definidas en los datos")
+
+# ← NUEVO: Filtro de PERIODO
+if tiene_periodo and len(periodos) > 0:
+    filtro_periodo = st.sidebar.selectbox("📅 Período", options=["Todos"] + periodos)
+else:
+    filtro_periodo = "Todos"
+    if tiene_periodo:
+        st.sidebar.info("ℹ️ No hay períodos definidos en los datos")
+
 filtro_grupo = st.sidebar.selectbox("🏢 Grupo/Cliente", options=["Todos"] + grupos)
 
 df_filtrado = df.copy()
@@ -229,6 +304,12 @@ if filtro_estado != "Todos":
     df_filtrado = df_filtrado[df_filtrado['ESTADO'] == filtro_estado]
 if filtro_ciudad != "Todos":
     df_filtrado = df_filtrado[df_filtrado['CIUDAD'] == filtro_ciudad]
+# ← NUEVO: Aplicar filtro de CADENA
+if filtro_cadena != "Todas" and tiene_cadena:
+    df_filtrado = df_filtrado[df_filtrado['CADENA'] == filtro_cadena]
+# ← NUEVO: Aplicar filtro de PERIODO
+if filtro_periodo != "Todos" and tiene_periodo:
+    df_filtrado = df_filtrado[df_filtrado['PERIODO'] == filtro_periodo]
 if filtro_grupo != "Todos":
     df_filtrado = df_filtrado[df_filtrado['GRUPO'] == filtro_grupo]
 
@@ -237,6 +318,23 @@ if df_filtrado.empty:
     st.stop()
 
 st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
+
+# ← NUEVO: Mostrar filtros activos en sidebar
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ✅ Filtros Activos")
+filtros_activos = []
+if filtro_region != "Todas": filtros_activos.append(f"📌 {filtro_region}")
+if filtro_estado != "Todos": filtros_activos.append(f"📍 {filtro_estado}")
+if filtro_ciudad != "Todos": filtros_activos.append(f"🏙️ {filtro_ciudad}")
+if filtro_cadena != "Todas": filtros_activos.append(f"🏪 {filtro_cadena}")
+if filtro_periodo != "Todos": filtros_activos.append(f"📅 {filtro_periodo}")
+if filtro_grupo != "Todos": filtros_activos.append(f"🏢 {filtro_grupo}")
+
+if filtros_activos:
+    for f in filtros_activos:
+        st.sidebar.markdown(f"<small>{f}</small>", unsafe_allow_html=True)
+else:
+    st.sidebar.markdown("<small>🌐 Mostrando todos los datos</small>", unsafe_allow_html=True)
 
 # ============================================
 # CREAR TABS
@@ -793,7 +891,6 @@ with tab2:
 
     color_map = {'Bajo': '#2ECC40', 'Medio': '#FFD700', 'Alto': '#FF6B6B'}
 
-    # ← FIX: Asegurar que df_origen_mapa se define antes de usarlo en el centrado del mapa
     df_origen_mapa = pd.DataFrame()
 
     if cliente_seleccionado != "Todos los clientes":
@@ -881,7 +978,6 @@ with tab2:
                 showlegend=False
             ))
 
-    # ← FIX: Usar siempre 'Longitud' (español), no 'Longitude'
     if cliente_seleccionado != "Todos los clientes" and not df_origen_mapa.empty:
         center_lat = df_origen_mapa.iloc[0]['Latitud']
         center_lon = df_origen_mapa.iloc[0]['Longitud']
@@ -929,7 +1025,6 @@ with tab2:
                         'Distancia (km)', 'Distancia (m)', 'Precio Origen', 'Precio Destino',
                         'Estado Origen', 'Estado Destino']
 
-    # ← FIX: Ordenar ANTES de formatear o estilizar. Nunca después de .style
     df_tabla = df_tabla.sort_values('Distancia (km)')
 
     df_tabla['Precio Origen'] = df_tabla['Precio Origen'].apply(lambda x: f"${x:,.2f}")
@@ -939,11 +1034,6 @@ with tab2:
     po = df_tabla['Precio Origen'].str.replace('[$,]', '', regex=True).astype(float)
     pd_ = df_tabla['Precio Destino'].str.replace('[$,]', '', regex=True).astype(float)
     df_tabla['Diferencia'] = (po - pd_).apply(lambda x: f"${x:,.2f}")
-
-    # ← FIX: Si quieres estilizar, hazlo aquí sobre el DataFrame ya ordenado
-    # Ejemplo (comentado para que no falle si no lo necesitas):
-    # styled_tabla = df_tabla.style.apply(tu_funcion_color, axis=1)
-    # st.dataframe(styled_tabla, use_container_width=True, hide_index=True)
     
     st.dataframe(df_tabla, use_container_width=True, hide_index=True)
 
@@ -1235,11 +1325,9 @@ with tab3:
             with col_r3:
                 st.metric("Rango", f"${df_region['VOLT'].max() - df_region['VOLT'].min():,.2f}")
 
-            # ← FIX: Aplicar estilo ANTES de convertir a formato string
             df_region_tabla = df_region[['GRUPO', 'VOLT', 'ESTADO', 'CIUDAD', 'Folio Emetrix']].copy()
             df_region_tabla.columns = ['Cliente', 'Precio', 'Estado', 'Ciudad', 'Folio']
             
-            # Calcular max/min para estilizado antes de formatear
             max_precio_region = df_region_tabla['Precio'].max()
             min_precio_region = df_region_tabla['Precio'].min()
 
@@ -1253,7 +1341,6 @@ with tab3:
 
             styled_region = df_region_tabla.style.apply(color_region_rows, axis=1)
             
-            # Ahora sí formatear para mostrar
             df_region_tabla['Precio'] = df_region_tabla['Precio'].apply(lambda x: f"${x:,.2f}")
             
             st.dataframe(df_region_tabla, use_container_width=True, hide_index=True)
