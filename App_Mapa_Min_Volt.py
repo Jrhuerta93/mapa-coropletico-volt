@@ -19,7 +19,7 @@ st.set_page_config(
 )
 
 # ============================================
-# CSS PARA ESTILIZACIÓN
+# CSS PARA OCULTAR ICONOS DE STREAMLIT
 # ============================================
 st.markdown("""
     <style>
@@ -27,6 +27,7 @@ st.markdown("""
     .stAppDeployButton {display: none;}
     footer {visibility: hidden;}
     .stToolbar {visibility: hidden;}
+    .stApp a[href*="share.streamlit.io"] {display: none;}
     header {visibility: hidden;}
     button[kind="header"] {display: none;}
 
@@ -71,7 +72,7 @@ def cargar_datos():
         df = pd.read_csv("datos_tiendas.csv", encoding='latin1')
         df.columns = df.columns.str.strip()
 
-        # Asegurar columnas críticas para evitar KeyError
+        # ← CORRECCIÓN: Proteger columnas críticas para evitar KeyError en cascada
         if 'Folio Emetrix' not in df.columns:
             df['Folio Emetrix'] = 'TIENDA_' + df.index.astype(str)
         
@@ -80,8 +81,6 @@ def cargar_datos():
 
         if 'VOLT' in df.columns:
             df['VOLT'] = pd.to_numeric(df['VOLT'], errors='coerce').fillna(0.0)
-        else:
-            df['VOLT'] = 0.0
 
         if 'REGIÓN' not in df.columns:
             df['REGIÓN'] = 'Sin región'
@@ -117,8 +116,8 @@ def cargar_geojson():
             response = requests.get(url, timeout=10)
             if response.status_code == 200:
                 return response.json()
-    except Exception as e:
-        st.warning(f"⚠️ No se pudo cargar GeoJSON desde URL: {e}")
+    except Exception:
+        pass
     return None
 
 @st.cache_data
@@ -273,7 +272,7 @@ with tab1:
 
     geojson_data = cargar_geojson()
     if geojson_data is None:
-        st.error("❌ No se pudo cargar el archivo GeoJSON. Asegúrate de tener conexión a internet o el archivo 'mexico.json' en la carpeta.")
+        st.error("❌ No se pudo cargar el archivo GeoJSON")
     else:
         st.markdown("### 📊 Resumen Ejecutivo")
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -341,11 +340,10 @@ with tab1:
         def color_rows(row):
             return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row) if row['Precio Crítico'] == '🔴 Sí' else [''] * len(row)
         
-        # Usamos .format() para mantener el dato numérico y evitar errores de KeyError
+        # ← CORRECCIÓN: Usar .format() nativo en lugar de convertir a string manualmente
         styled_df = df_tabla.style.apply(color_rows, axis=1).format({'Precio Mínimo': '${:,.2f}'})
         st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
-        # Curva de Precios
         st.subheader("📈 Curva de Precios por Clientes vs Objetivo")
         df_linea = df_estado[['Estado_Mapa', 'Grupo', 'Volt_minimo']].copy()
         df_linea.columns = ['Estado', 'Grupo', 'Precio']
@@ -502,16 +500,15 @@ with tab2:
                             'Distancia (km)', 'Distancia (m)', 'Precio Origen', 'Precio Destino',
                             'Estado Origen', 'Estado Destino']
 
+    # ← CORRECCIÓN: Calcular diferencia numéricamente y usar .format() para evitar errores de string
     df_tabla_con['Diferencia'] = df_tabla_con['Precio Origen'] - df_tabla_con['Precio Destino']
-
-    # Usamos .format() nativo para evitar conversiones manuales propensas a error
+    
     styled_con = df_tabla_con.style.format({
         'Precio Origen': '${:,.2f}',
         'Precio Destino': '${:,.2f}',
         'Diferencia': '${:,.2f}',
         'Distancia (m)': '{:,.0f}'
     })
-    
     st.dataframe(styled_con.sort_values('Distancia (km)'), use_container_width=True, hide_index=True)
 
     with st.expander("🔍 Clientes sin conexión"):
@@ -601,7 +598,7 @@ with tab3:
     st.subheader("📋 Ranking Completo por Región")
     for region in sorted(df_ranking['REGIÓN'].unique()):
         with st.expander(f"🗺️ {region}"):
-            df_region = df_region = df_ranking[df_ranking['REGIÓN'] == region].copy().sort_values('VOLT', ascending=False)
+            df_region = df_ranking[df_ranking['REGIÓN'] == region].copy().sort_values('VOLT', ascending=False)
             col_r1, col_r2, col_r3 = st.columns(3)
             with col_r1: st.metric("Clientes", len(df_region))
             with col_r2: st.metric("Precio Promedio", f"${df_region['VOLT'].mean():,.2f}")
@@ -610,18 +607,17 @@ with tab3:
             df_region_tabla = df_region[['GRUPO', 'VOLT', 'ESTADO', 'CIUDAD', 'Folio Emetrix']].copy()
             df_region_tabla.columns = ['Cliente', 'Precio', 'Estado', 'Ciudad', 'Folio']
             
-            # Función corregida: accede a 'Precio' que sigue siendo numérico
+            # ← CORRECCIÓN DEFINITIVA: La columna 'Precio' se mantiene NUMÉRICA aquí.
+            # La función de estilo la lee sin errores, y el formato visual se aplica después con .format()
             def color_region_rows(row):
-                precio_val = row['Precio']
                 max_precio = df_region['VOLT'].max()
                 min_precio = df_region['VOLT'].min()
-                if precio_val == max_precio: 
+                if row['Precio'] == max_precio:
                     return ['background-color: #ff6b6b; color: white; font-weight: bold'] * len(row)
-                elif precio_val == min_precio: 
+                elif row['Precio'] == min_precio:
                     return ['background-color: #4285F4; color: white; font-weight: bold'] * len(row)
                 return [''] * len(row)
-            
-            # Aplicamos estilo y luego formateamos la columna para visualización
+
             styled_region = (
                 df_region_tabla.style
                 .apply(color_region_rows, axis=1)
