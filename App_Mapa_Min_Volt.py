@@ -97,7 +97,7 @@ def cargar_datos():
 
         df['CIUDAD'] = df['CIUDAD'].fillna('Sin ciudad').str.strip()
 
-        # ← NUEVO: Normalizar columna CADENA (busca CADENA, Cadena, cadena, etc.)
+        # Normalizar columna CADENA
         cadena_col = None
         for col in df.columns:
             if col.upper() == 'CADENA':
@@ -113,19 +113,18 @@ def cargar_datos():
             df['CADENA'] = df['CADENA'].fillna('Sin cadena').str.strip()
             df['CADENA'] = df['CADENA'].replace('', 'Sin cadena')
 
-        # ← NUEVO: Normalizar columna PERIODO (busca PERIODO, Periodo, periodo, FECHA, etc.)
+        # Normalizar columna PERIODO
         periodo_col = None
         for col in df.columns:
-            if col.upper() in ['PERIODO', 'PERÍODO', 'PERIODO']:
+            if col.upper() in ['PERIODO', 'PERÍODO']:
                 periodo_col = col
                 break
         
         if periodo_col and periodo_col != 'PERIODO':
             df = df.rename(columns={periodo_col: 'PERIODO'})
         elif periodo_col is None:
-            # Intentar con FECHA
             for col in df.columns:
-                if col.upper() in ['FECHA', 'DATE', 'MES', 'AÑO', 'PERIODO']:
+                if col.upper() in ['FECHA', 'DATE', 'MES', 'AÑO']:
                     periodo_col = col
                     break
             if periodo_col and periodo_col != 'PERIODO':
@@ -135,7 +134,6 @@ def cargar_datos():
 
         if 'PERIODO' in df.columns:
             df['PERIODO'] = df['PERIODO'].fillna('Sin periodo')
-            # Si es fecha, convertir a string para el selectbox
             if pd.api.types.is_datetime64_any_dtype(df['PERIODO']):
                 df['PERIODO'] = df['PERIODO'].dt.strftime('%Y-%m-%d')
             else:
@@ -244,7 +242,7 @@ if 'GRUPO' not in df.columns:
     df['GRUPO'] = df['Folio Emetrix']
 
 # ============================================
-# SIDEBAR - FILTROS (CON CADENA Y PERIODO NUEVOS)
+# SIDEBAR - FILTROS (CON CADENA Y PERIODO)
 # ============================================
 st.sidebar.markdown("### 🔄 Actualización de Datos")
 if st.sidebar.button("🔄 Recargar Datos"):
@@ -262,13 +260,11 @@ estados = sorted(df['ESTADO'].unique())
 grupos = sorted(df['GRUPO'].unique())
 ciudades = sorted([c for c in df['CIUDAD'].unique() if c and c != 'Sin ciudad'])
 
-# ← NUEVO: Preparar opciones de CADENA
 tiene_cadena = 'CADENA' in df.columns
 cadenas = []
 if tiene_cadena:
     cadenas = sorted([c for c in df['CADENA'].unique() if c and c != 'Sin cadena'])
 
-# ← NUEVO: Preparar opciones de PERIODO
 tiene_periodo = 'PERIODO' in df.columns
 periodos = []
 if tiene_periodo:
@@ -278,7 +274,6 @@ filtro_region = st.sidebar.selectbox("📌 Región", options=["Todas"] + regione
 filtro_estado = st.sidebar.selectbox("📍 Estado", options=["Todos"] + estados)
 filtro_ciudad = st.sidebar.selectbox("🏙️ Municipio", options=["Todos"] + ciudades if ciudades else ["Todos"])
 
-# ← NUEVO: Filtro de CADENA
 if tiene_cadena and len(cadenas) > 0:
     filtro_cadena = st.sidebar.selectbox("🏪 Cadena", options=["Todas"] + cadenas)
 else:
@@ -286,7 +281,6 @@ else:
     if tiene_cadena:
         st.sidebar.info("ℹ️ No hay cadenas definidas en los datos")
 
-# ← NUEVO: Filtro de PERIODO
 if tiene_periodo and len(periodos) > 0:
     filtro_periodo = st.sidebar.selectbox("📅 Período", options=["Todos"] + periodos)
 else:
@@ -296,6 +290,29 @@ else:
 
 filtro_grupo = st.sidebar.selectbox("🏢 Grupo/Cliente", options=["Todos"] + grupos)
 
+# ============================================
+# ← NUEVO: CONFIGURACIÓN VISUAL DEL MAPA (TAB 1)
+# ============================================
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎨 Configuración Visual del Mapa")
+
+tamano_etiquetas = st.sidebar.slider(
+    "🔤 Tamaño de etiquetas (px)",
+    min_value=6,
+    max_value=16,
+    value=9,
+    step=1,
+    help="Tamaño del texto del precio mínimo sobre cada estado. Baja si se enciman."
+)
+
+modo_color_texto = st.sidebar.radio(
+    "🎨 Color de texto en mapa",
+    options=["Automático (según fondo)", "Siempre Negro", "Siempre Blanco"],
+    index=0,
+    horizontal=True,
+    help="Automático: blanco sobre fondos oscuros, negro sobre claros (optimizado para escala 'Blues')"
+)
+
 df_filtrado = df.copy()
 
 if filtro_region != "Todas" and filtro_region:
@@ -304,10 +321,8 @@ if filtro_estado != "Todos":
     df_filtrado = df_filtrado[df_filtrado['ESTADO'] == filtro_estado]
 if filtro_ciudad != "Todos":
     df_filtrado = df_filtrado[df_filtrado['CIUDAD'] == filtro_ciudad]
-# ← NUEVO: Aplicar filtro de CADENA
 if filtro_cadena != "Todas" and tiene_cadena:
     df_filtrado = df_filtrado[df_filtrado['CADENA'] == filtro_cadena]
-# ← NUEVO: Aplicar filtro de PERIODO
 if filtro_periodo != "Todos" and tiene_periodo:
     df_filtrado = df_filtrado[df_filtrado['PERIODO'] == filtro_periodo]
 if filtro_grupo != "Todos":
@@ -319,7 +334,6 @@ if df_filtrado.empty:
 
 st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
 
-# ← NUEVO: Mostrar filtros activos en sidebar
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ✅ Filtros Activos")
 filtros_activos = []
@@ -381,7 +395,7 @@ with tab1:
         'OAXACA': 'Oaxaca',
         'PUEBLA': 'Puebla',
         'QUERETARO': 'Querétaro',
-        'QUERÉTARO': 'Querétaro',
+        'QUERÉTARARO': 'Querétaro',
         'SAN LUIS POTOSI': 'San Luis Potosí',
         'SAN LUIS POTOSÍ': 'San Luis Potosí',
         'SONORA': 'Sonora',
@@ -408,11 +422,20 @@ with tab1:
 
     df_estado['Estado_Mapa'] = df_estado['ESTADO'].map(mapeo_estados)
 
-    def get_text_color(value, min_val, max_val):
+    # ============================================
+    # ← FIX: FUNCIÓN DE COLOR MEJORADA CON MODO MANUAL
+    # ============================================
+    def get_text_color(value, min_val, max_val, modo):
+        if modo == "Siempre Negro":
+            return 'black'
+        if modo == "Siempre Blanco":
+            return 'white'
+        # Modo Automático: para colorscale 'Blues', valores altos = fondo oscuro
         if max_val == min_val:
             return 'white'
         normalized = (value - min_val) / (max_val - min_val)
-        if normalized > 0.55:
+        # En Blues: > 0.5 es ya un azul medio-oscuro, usamos umbral 0.5 para blanco
+        if normalized > 0.50:
             return 'white'
         else:
             return 'black'
@@ -425,10 +448,11 @@ with tab1:
     df_estado['Es_Critico'] = df_estado['Volt_minimo'] <= umbral_critico
 
     df_estado['Color_Texto'] = df_estado['Volt_minimo'].apply(
-        lambda x: get_text_color(x, precio_minimo_global, precio_maximo_global)
+        lambda x: get_text_color(x, precio_minimo_global, precio_maximo_global, modo_color_texto)
     )
 
-    TAMANO_TEXTO = 9
+    # ← FIX: Usar la variable del slider en lugar de constante
+    TAMANO_TEXTO = tamano_etiquetas
 
     df_estado['Texto_Mapa'] = df_estado.apply(
         lambda row: f"${row['Volt_minimo']:,.0f}" + ("🔴" if row['Es_Critico'] else ""),
@@ -545,7 +569,7 @@ with tab1:
                 mode='text',
                 text=[row['Texto_Mapa']],
                 textfont=dict(
-                    size=TAMANO_TEXTO,
+                    size=TAMANO_TEXTO,  # ← AQUÍ SE APLICA EL SLIDER
                     color=row['Color_Texto'],
                     family='Arial, sans-serif',
                     weight='bold'
