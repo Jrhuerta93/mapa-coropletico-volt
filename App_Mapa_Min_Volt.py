@@ -86,7 +86,6 @@ def cargar_datos():
         else:
             df['REGIÓN'] = df['REGIÓN'].fillna('Sin región').str.strip().replace('', 'Sin región')
 
-        # Normalizar columna CIUDAD
         ciudad_col = next((col for col in df.columns if col.upper() == 'CIUDAD'), None)
         if ciudad_col and ciudad_col != 'CIUDAD':
             df = df.rename(columns={ciudad_col: 'CIUDAD'})
@@ -94,7 +93,6 @@ def cargar_datos():
             df['CIUDAD'] = 'Sin ciudad'
         df['CIUDAD'] = df['CIUDAD'].fillna('Sin ciudad').str.strip()
 
-        # Normalizar columna CADENA
         cadena_col = next((col for col in df.columns if col.upper() == 'CADENA'), None)
         if cadena_col and cadena_col != 'CADENA':
             df = df.rename(columns={cadena_col: 'CADENA'})
@@ -103,7 +101,6 @@ def cargar_datos():
         if 'CADENA' in df.columns:
             df['CADENA'] = df['CADENA'].fillna('Sin cadena').str.strip().replace('', 'Sin cadena')
 
-        # Normalizar columna PERIODO
         periodo_col = next((col for col in df.columns if col.upper() in ['PERIODO', 'PERÍODO']), None)
         if periodo_col and periodo_col != 'PERIODO':
             df = df.rename(columns={periodo_col: 'PERIODO'})
@@ -134,20 +131,17 @@ def cargar_datos():
 @st.cache_data
 def cargar_geojson():
     try:
-        # Intenta cargar localmente primero (más rápido y confiable)
-        with open('mexico.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        try:
-            # Fallback a URL si no existe localmente
-            url = "https://raw.githubusercontent.com/angelnmara/geojson/master/mexicoHigh.json"
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                return response.json()
-        except requests.exceptions.RequestException:
-            pass
-    except Exception:
-        pass
+        if os.path.exists('mexico.json'):
+            with open('mexico.json', 'r', encoding='utf-8') as f:
+                return json.load(f)
+        
+        # ← CORRECCIÓN: Usamos la versión 'low' (ligera) para evitar timeouts en Streamlit Cloud
+        url = "https://raw.githubusercontent.com/angelnmara/geojson/master/mexico-low.json"
+        response = requests.get(url, timeout=15)
+        if response.status_code == 200:
+            return response.json()
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo cargar GeoJSON: {e}")
     return None
 
 @st.cache_data
@@ -168,7 +162,7 @@ def calcular_distancias_optimizado(df, distancia_max_km=100, top_n=5):
     dlon = lon[:, np.newaxis] - lon[np.newaxis, :]
     a = np.sin(dlat/2)**2 + np.cos(lat[:, np.newaxis]) * np.cos(lat[np.newaxis, :]) * np.sin(dlon/2)**2
     c = 2 * np.arcsin(np.sqrt(a))
-    distancias = 6371 * c  # km
+    distancias = 6371 * c
 
     np.fill_diagonal(distancias, np.inf)
     conexiones = []
@@ -257,22 +251,6 @@ if df_filtrado.empty:
     st.stop()
 
 st.sidebar.metric("📊 Tiendas encontradas", len(df_filtrado))
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ✅ Filtros Activos")
-filtros_activos = [f"📌 {filtro_region}" if filtro_region != "Todas" else "",
-                   f"📍 {filtro_estado}" if filtro_estado != "Todos" else "",
-                   f"🏙️ {filtro_ciudad}" if filtro_ciudad != "Todos" else "",
-                   f"🏪 {filtro_cadena}" if filtro_cadena != "Todas" else "",
-                   f"📅 {filtro_periodo}" if filtro_periodo != "Todos" else "",
-                   f"🏢 {filtro_grupo}" if filtro_grupo != "Todos" else ""]
-filtros_activos = [f for f in filtros_activos if f]
-
-if filtros_activos:
-    for f in filtros_activos:
-        st.sidebar.markdown(f"<small>{f}</small>", unsafe_allow_html=True)
-else:
-    st.sidebar.markdown("<small>🌐 Mostrando todos los datos</small>", unsafe_allow_html=True)
 
 # ============================================
 # CREAR TABS
@@ -512,49 +490,125 @@ with tab2:
     if cliente_seleccionado != "Todos los clientes":
         df_origen_mapa = df_clientes_mapa[df_clientes_mapa['GRUPO'] == cliente_seleccionado]
         if not df_origen_mapa.empty:
-            fig_trazabilidad.add_trace(go.Scattermapbox(
-                lat=[df_origen_mapa.iloc[0]['Latitud']], lon=[df_origen_mapa.iloc[0]['Longitud']], mode='markers',
-                marker=go.scattermapbox.Marker(size=16, color='#4285F4'), name='🎯 Origen',
-                hovertext=[f"<b>🎯 CLIENTE ORIGEN</b><br><b>🏢 {df_origen_mapa.iloc[0]['GRUPO']}</b><br>📍 {df_origen_mapa.iloc[0]['CIUDAD']}<br>🗺️ {df_origen_mapa.iloc[0]['ESTADO']}<br>💰 ${df_origen_mapa.iloc[0]['VOLT']:,.2f}"],
-                hoverinfo='text'))
+            hover_text_origen = (
+                f"<b>🎯 CLIENTE ORIGEN</b><br>"
+                f"<b>🏢 {df_origen_mapa.iloc[0]['GRUPO']}</b><br>"
+                f"📍 {df_origen_mapa.iloc[0]['CIUDAD']}<br>"
+                f"🗺️ {df_origen_mapa.iloc[0]['ESTADO']}<br>"
+                f"💰 ${df_origen_mapa.iloc[0]['VOLT']:,.2f}<br>"
+                f"🎫 {df_origen_mapa.iloc[0]['Folio Emetrix']}"
+            )
+            # ✅ CORRECCIÓN CRÍTICA: Scattermapbox -> Scattermap
+            fig_trazabilidad.add_trace(go.Scattermap(
+                lat=[df_origen_mapa.iloc[0]['Latitud']],
+                lon=[df_origen_mapa.iloc[0]['Longitud']],
+                mode='markers',
+                marker=go.scattermap.Marker(size=16, color='#4285F4'),
+                name='🎯 Origen',
+                hovertext=[hover_text_origen],
+                hoverinfo='text'
+            ))
         df_destinos = df_clientes_mapa[df_clientes_mapa['GRUPO'] != cliente_seleccionado]
     else:
         df_destinos = df_clientes_mapa
 
     for categoria in ['Bajo', 'Medio', 'Alto']:
         df_cat = df_destinos[df_destinos['Categoria_Precio'] == categoria]
-        if df_cat.empty: continue
-        hover_texts = [f"<b>🏢 {row['GRUPO']}</b><br>📍 {row['CIUDAD']}<br>🗺️ {row['ESTADO']}<br>💰 ${row['VOLT']:,.2f}" for _, row in df_cat.iterrows()]
-        fig_trazabilidad.add_trace(go.Scattermapbox(lat=df_cat['Latitud'].tolist(), lon=df_cat['Longitud'].tolist(), mode='markers',
-            marker=go.scattermapbox.Marker(size=10, color=color_map[categoria]), name=categoria, hovertext=hover_texts, hoverinfo='text'))
+        if df_cat.empty:
+            continue
+
+        hover_texts = []
+        for _, row in df_cat.iterrows():
+            hover_text = (
+                f"<b>🏢 {row['GRUPO']}</b><br>"
+                f"📍 {row['CIUDAD']}<br>"
+                f"🗺️ {row['ESTADO']}<br>"
+                f"💰 ${row['VOLT']:,.2f}<br>"
+                f"🎫 {row['Folio Emetrix']}"
+            )
+            hover_texts.append(hover_text)
+
+        # ✅ CORRECCIÓN CRÍTICA: Scattermapbox -> Scattermap
+        fig_trazabilidad.add_trace(go.Scattermap(
+            lat=df_cat['Latitud'].tolist(),
+            lon=df_cat['Longitud'].tolist(),
+            mode='markers',
+            marker=go.scattermap.Marker(size=10, color=color_map[categoria]),
+            name=categoria,
+            hovertext=hover_texts,
+            hoverinfo='text'
+        ))
 
     if mostrar_lineas and not df_conexiones.empty:
         df_lineas = df_conexiones.nsmallest(min(200, len(df_conexiones)), 'distancia_km')
+
         for _, row in df_lineas.iterrows():
             diff = row['precio_origen'] - row['precio_destino']
-            color = 'rgba(46, 204, 64, 0.4)' if diff > 5 else 'rgba(255, 107, 107, 0.4)' if diff < -5 else 'rgba(52, 152, 219, 0.2)'
-            fig_trazabilidad.add_trace(go.Scattermapbox(
-                lon=[row['longitud_origen'], row['longitud_destino']], lat=[row['latitud_origen'], row['latitud_destino']], mode='lines',
+            if diff > 5: color = 'rgba(46, 204, 64, 0.4)'
+            elif diff < -5: color = 'rgba(255, 107, 107, 0.4)'
+            else: color = 'rgba(52, 152, 219, 0.2)'
+
+            hover_text = (
+                f"<b>🔗 Conexión</b><br>"
+                f"📏 Distancia: <b>{row['distancia_m']:,.0f} m</b> ({row['distancia_km']:.2f} km)<br>"
+                f"🏢 {row['cliente_origen']} → {row['cliente_destino']}<br>"
+                f"💰 ${row['precio_origen']:.2f} → ${row['precio_destino']:.2f}<br>"
+                f"💱 Diferencia: ${diff:.2f}<br>"
+                f"📍 {row['ciudad_origen']} → {row['ciudad_destino']}"
+            )
+
+            # ✅ CORRECCIÓN CRÍTICA: Scattermapbox -> Scattermap
+            fig_trazabilidad.add_trace(go.Scattermap(
+                lon=[row['longitud_origen'], row['longitud_destino']],
+                lat=[row['latitud_origen'], row['latitud_destino']],
+                mode='lines',
                 line=dict(width=1.5, color=color),
-                hovertext=f"<b>🔗 Conexión</b><br>📏 Distancia: <b>{row['distancia_m']:,.0f} m</b> ({row['distancia_km']:.2f} km)<br>🏢 {row['cliente_origen']} → {row['cliente_destino']}<br>💰 ${row['precio_origen']:.2f} → ${row['precio_destino']:.2f}",
-                hoverinfo='text', showlegend=False))
+                hovertext=hover_text,
+                hoverinfo='text',
+                showlegend=False
+            ))
 
-    center_lat = df_origen_mapa.iloc[0]['Latitud'] if cliente_seleccionado != "Todos los clientes" and not df_origen_mapa.empty else df_clientes_mapa['Latitud'].mean()
-    center_lon = df_origen_mapa.iloc[0]['Longitud'] if cliente_seleccionado != "Todos los clientes" and not df_origen_mapa.empty else df_clientes_mapa['Longitud'].mean()
-    zoom_level = 12 if cliente_seleccionado != "Todos los clientes" else 5
+    if cliente_seleccionado != "Todos los clientes" and not df_origen_mapa.empty:
+        center_lat = df_origen_mapa.iloc[0]['Latitud']
+        center_lon = df_origen_mapa.iloc[0]['Longitud']
+        zoom_level = 12
+    else:
+        center_lat = df_clientes_mapa['Latitud'].mean()
+        center_lon = df_clientes_mapa['Longitud'].mean()
+        zoom_level = 5
 
+    # ✅ CORRECCIÓN CRÍTICA: mapbox=dict -> map=dict
     fig_trazabilidad.update_layout(
-        mapbox=dict(style="carto-positron", zoom=zoom_level, center={"lat": center_lat, "lon": center_lon}),
-        margin={"r":0, "t":30, "l":0, "b":0}, height=700,
-        hoverlabel=dict(bgcolor="white", font_size=12, font_family="Arial", font_color="#2c3e50", bordercolor="#2c3e50"),
-        legend=dict(title=dict(text="Precio", font=dict(size=12)), orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        map=dict(
+            style="carto-positron",
+            zoom=zoom_level,
+            center={"lat": center_lat, "lon": center_lon}
+        ),
+        margin={"r":0, "t":30, "l":0, "b":0},
+        hoverlabel=dict(
+            bgcolor="white",
+            font_size=12,
+            font_family="Arial",
+            font_color="#2c3e50",
+            bordercolor="#2c3e50"
+        ),
+        legend=dict(
+            title=dict(text="Precio", font=dict(size=12)),
+            orientation="h", 
+            yanchor="bottom", 
+            y=1.02, 
+            xanchor="right", 
+            x=1
+        ),
+        height=700
+    )
+
     st.plotly_chart(fig_trazabilidad, use_container_width=True)
 
     st.subheader("📊 Tabla de Conexiones")
     df_tabla = df_conexiones[['cliente_origen', 'cliente_destino', 'ciudad_origen', 'ciudad_destino', 'distancia_km', 'distancia_m', 'precio_origen', 'precio_destino', 'estado_origen', 'estado_destino']].copy()
     df_tabla.columns = ['Origen', 'Destino', 'Ciudad Origen', 'Ciudad Destino', 'Distancia (km)', 'Distancia (m)', 'Precio Origen', 'Precio Destino', 'Estado Origen', 'Estado Destino']
     
-    # Corrección: Cálculo numérico directo y formato limpio con .style.format()
     df_tabla['Diferencia'] = df_tabla['Precio Origen'] - df_tabla['Precio Destino']
     df_tabla = df_tabla.sort_values('Distancia (km)')
     
@@ -670,7 +724,6 @@ with tab3:
                     return ['background-color: #4285F4; color: white; font-weight: bold'] * len(row)
                 return [''] * len(row)
 
-            # Corrección definitiva: Encadenar .apply() y .format() para que el estilo se renderice correctamente
             styled_region = (
                 df_region_tabla.style
                 .apply(color_region_rows, axis=1)
