@@ -130,18 +130,32 @@ def cargar_datos():
 
 @st.cache_data
 def cargar_geojson():
-    try:
-        if os.path.exists('mexico.json'):
+    # 1. Intentar cargar archivo local (solo si es un GeoJSON válido)
+    if os.path.exists('mexico.json'):
+        try:
             with open('mexico.json', 'r', encoding='utf-8') as f:
-                return json.load(f)
-        
-        # ← CORRECCIÓN: Usamos la versión 'low' (ligera) para evitar timeouts en Streamlit Cloud
-        url = "https://raw.githubusercontent.com/angelnmara/geojson/master/mexico-low.json"
-        response = requests.get(url, timeout=15)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        st.warning(f"⚠️ No se pudo cargar GeoJSON: {e}")
+                data = json.load(f)
+                if isinstance(data, dict) and 'features' in data:
+                    return data
+        except Exception:
+            pass # Si está corrupto, lo ignoramos y bajamos de internet
+
+    # 2. Intentar descargar de URLs confiables
+    urls = [
+        "https://raw.githubusercontent.com/angelnmara/geojson/master/mexico.json",
+        "https://raw.githubusercontent.com/angelnmara/geojson/master/mexico-high.json"
+    ]
+    
+    for url in urls:
+        try:
+            response = requests.get(url, timeout=15)
+            if response.status_code == 200:
+                data = response.json() # Lanzará error si no es JSON válido
+                if isinstance(data, dict) and 'features' in data:
+                    return data
+        except Exception:
+            continue
+            
     return None
 
 @st.cache_data
@@ -498,7 +512,6 @@ with tab2:
                 f"💰 ${df_origen_mapa.iloc[0]['VOLT']:,.2f}<br>"
                 f"🎫 {df_origen_mapa.iloc[0]['Folio Emetrix']}"
             )
-            # ✅ CORRECCIÓN CRÍTICA: Scattermapbox -> Scattermap
             fig_trazabilidad.add_trace(go.Scattermap(
                 lat=[df_origen_mapa.iloc[0]['Latitud']],
                 lon=[df_origen_mapa.iloc[0]['Longitud']],
@@ -528,7 +541,6 @@ with tab2:
             )
             hover_texts.append(hover_text)
 
-        # ✅ CORRECCIÓN CRÍTICA: Scattermapbox -> Scattermap
         fig_trazabilidad.add_trace(go.Scattermap(
             lat=df_cat['Latitud'].tolist(),
             lon=df_cat['Longitud'].tolist(),
@@ -557,7 +569,6 @@ with tab2:
                 f"📍 {row['ciudad_origen']} → {row['ciudad_destino']}"
             )
 
-            # ✅ CORRECCIÓN CRÍTICA: Scattermapbox -> Scattermap
             fig_trazabilidad.add_trace(go.Scattermap(
                 lon=[row['longitud_origen'], row['longitud_destino']],
                 lat=[row['latitud_origen'], row['latitud_destino']],
@@ -577,7 +588,6 @@ with tab2:
         center_lon = df_clientes_mapa['Longitud'].mean()
         zoom_level = 5
 
-    # ✅ CORRECCIÓN CRÍTICA: mapbox=dict -> map=dict
     fig_trazabilidad.update_layout(
         map=dict(
             style="carto-positron",
@@ -681,6 +691,7 @@ with tab3:
     else:
         col_top, col_bottom = st.container(), st.container()
 
+    # ✅ CORRECCIÓN: Primero .rename(), luego .style.format()
     if mostrar_top:
         with col_top:
             st.subheader(f"🔥 Top {top_n_ranking} - Precios Más Altos")
@@ -689,7 +700,7 @@ with tab3:
             fig_top.add_vline(x=PRECIO_OBJETIVO, line_dash="dash", line_color="#1a1a2e", line_width=2)
             fig_top.update_layout(plot_bgcolor='white', xaxis=dict(tickprefix='$'), height=max(300, len(df_top) * 50), margin=dict(l=200, r=50, t=30, b=50))
             st.plotly_chart(fig_top, use_container_width=True)
-            st.dataframe(df_top.style.format({'VOLT': '${:,.2f}'}).rename(columns={'VOLT': 'Precio'}), use_container_width=True, hide_index=True)
+            st.dataframe(df_top.rename(columns={'VOLT': 'Precio'}).style.format({'Precio': '${:,.2f}'}), use_container_width=True, hide_index=True)
 
     if mostrar_bottom:
         with col_bottom:
@@ -699,7 +710,7 @@ with tab3:
             fig_bottom.add_vline(x=PRECIO_OBJETIVO, line_dash="dash", line_color="#1a1a2e", line_width=2)
             fig_bottom.update_layout(plot_bgcolor='white', xaxis=dict(tickprefix='$'), height=max(300, len(df_bottom) * 50), margin=dict(l=200, r=50, t=30, b=50))
             st.plotly_chart(fig_bottom, use_container_width=True)
-            st.dataframe(df_bottom.style.format({'VOLT': '${:,.2f}'}).rename(columns={'VOLT': 'Precio'}), use_container_width=True, hide_index=True)
+            st.dataframe(df_bottom.rename(columns={'VOLT': 'Precio'}).style.format({'Precio': '${:,.2f}'}), use_container_width=True, hide_index=True)
 
     st.markdown("---")
     st.subheader("📋 Ranking Completo por Región")
