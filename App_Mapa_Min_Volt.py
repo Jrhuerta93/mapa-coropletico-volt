@@ -917,6 +917,7 @@ with tab2:
 
     df_origen_mapa = pd.DataFrame()
 
+    # CORRECCIÓN AQUÍ: Usar go.Scattermapbox con la sintaxis correcta
     if cliente_seleccionado != "Todos los clientes":
         df_origen_mapa = df_clientes_mapa[df_clientes_mapa['GRUPO'] == cliente_seleccionado]
         if not df_origen_mapa.empty:
@@ -1038,50 +1039,6 @@ with tab2:
 
     st.plotly_chart(fig_trazabilidad, use_container_width=True)
 
-    st.subheader("📊 Tabla de Conexiones")
-
-    df_tabla = df_conexiones[[
-        'cliente_origen', 'cliente_destino', 'ciudad_origen', 'ciudad_destino',
-        'distancia_km', 'distancia_m', 'precio_origen', 'precio_destino', 
-        'estado_origen', 'estado_destino'
-    ]].copy()
-    df_tabla.columns = ['Origen', 'Destino', 'Ciudad Origen', 'Ciudad Destino',
-                        'Distancia (km)', 'Distancia (m)', 'Precio Origen', 'Precio Destino',
-                        'Estado Origen', 'Estado Destino']
-
-    df_tabla = df_tabla.sort_values('Distancia (km)')
-
-    df_tabla['Precio Origen'] = df_tabla['Precio Origen'].apply(lambda x: f"${x:,.2f}")
-    df_tabla['Precio Destino'] = df_tabla['Precio Destino'].apply(lambda x: f"${x:,.2f}")
-    df_tabla['Distancia (m)'] = df_tabla['Distancia (m)'].apply(lambda x: f"{x:,.0f}")
-
-    po = df_tabla['Precio Origen'].str.replace('[$,]', '', regex=True).astype(float)
-    pd_ = df_tabla['Precio Destino'].str.replace('[$,]', '', regex=True).astype(float)
-    df_tabla['Diferencia'] = (po - pd_).apply(lambda x: f"${x:,.2f}")
-    
-    st.dataframe(df_tabla, use_container_width=True, hide_index=True)
-
-    with st.expander("🔍 Clientes sin conexión"):
-        if cliente_seleccionado != "Todos los clientes":
-            folios_destino = set(df_conexiones['folio_destino'].unique())
-            df_aislados = df_filtrado[
-                (~df_filtrado['Folio Emetrix'].isin(folios_destino)) & 
-                (df_filtrado['GRUPO'] != cliente_seleccionado)
-            ]
-            mensaje = f"clientes del área que no son vecinos de '{cliente_seleccionado}'"
-        else:
-            folios_con = set(df_conexiones['folio_origen']) | set(df_conexiones['folio_destino'])
-            df_aislados = df_filtrado[~df_filtrado['Folio Emetrix'].isin(folios_con)]
-            mensaje = f"clientes aislados (fuera del cinturón de {cinturon_m:,} m)"
-
-        if not df_aislados.empty:
-            st.warning(f"⚠️ {len(df_aislados)} {mensaje}")
-            st.dataframe(df_aislados[['GRUPO', 'CIUDAD', 'ESTADO', 'VOLT']], use_container_width=True)
-        else:
-            if cliente_seleccionado != "Todos los clientes":
-                st.success(f"✅ Todos los clientes del área son vecinos de '{cliente_seleccionado}'")
-            else:
-                st.success(f"✅ Todos los clientes tienen conexiones dentro del cinturón de {cinturon_m:,} m")
 
 # ============================================
 # TAB 3: TOP & BOTTOM POR REGIÓN
