@@ -929,11 +929,11 @@ with tab2:
                 f"💰 ${df_origen_mapa.iloc[0]['VOLT']:,.2f}<br>"
                 f"🎫 {df_origen_mapa.iloc[0]['Folio Emetrix']}"
             )
-            fig_trazabilidad.add_trace(go.Scattermapbox(
+            fig_trazabilidad.add_trace(go.Scattermap(
                 lat=[df_origen_mapa.iloc[0]['Latitud']],
                 lon=[df_origen_mapa.iloc[0]['Longitud']],
                 mode='markers',
-                marker=dict(  # CAMBIO: usar dict en lugar de go.scattermapbox.Marker
+                marker=dict(  # CAMBIO: usar dict en lugar de go.Scattermap.Marker
                     size=16,
                     color='#4285F4'
                 ),
@@ -962,11 +962,11 @@ with tab2:
             )
             hover_texts.append(hover_text)
 
-        fig_trazabilidad.add_trace(go.Scattermapbox(
+        fig_trazabilidad.add_trace(go.Scattermap(
             lat=df_cat['Latitud'].tolist(),
             lon=df_cat['Longitud'].tolist(),
             mode='markers',
-            marker=dict(  # CAMBIO: usar dict en lugar de go.scattermapbox.Marker
+            marker=dict(  # CAMBIO: usar dict en lugar de go.Scattermap.Marker
                 size=10,
                 color=color_map[categoria]
             ),
@@ -993,7 +993,7 @@ with tab2:
                 f"📍 {row['ciudad_origen']} → {row['ciudad_destino']}"
             )
 
-            fig_trazabilidad.add_trace(go.Scattermapbox(
+            fig_trazabilidad.add_trace(go.Scattermap(
                 lon=[row['longitud_origen'], row['longitud_destino']],
                 lat=[row['latitud_origen'], row['latitud_destino']],
                 mode='lines',
@@ -1013,7 +1013,7 @@ with tab2:
         zoom_level = 5
 
     fig_trazabilidad.update_layout(
-        mapbox=dict(
+        map=dict(
             style="carto-positron",
             zoom=zoom_level,
             center={"lat": center_lat, "lon": center_lon}
