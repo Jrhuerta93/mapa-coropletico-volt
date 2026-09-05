@@ -917,7 +917,7 @@ with tab2:
 
     df_origen_mapa = pd.DataFrame()
 
-    # CORRECCIÓN AQUÍ: Usar go.Scattermapbox con la sintaxis correcta
+    # CORRECCIÓN: Usar Scattermapbox con sintaxis correcta
     if cliente_seleccionado != "Todos los clientes":
         df_origen_mapa = df_clientes_mapa[df_clientes_mapa['GRUPO'] == cliente_seleccionado]
         if not df_origen_mapa.empty:
@@ -933,7 +933,7 @@ with tab2:
                 lat=[df_origen_mapa.iloc[0]['Latitud']],
                 lon=[df_origen_mapa.iloc[0]['Longitud']],
                 mode='markers',
-                marker=go.scattermapbox.Marker(
+                marker=dict(  # CAMBIO: usar dict en lugar de go.scattermapbox.Marker
                     size=16,
                     color='#4285F4'
                 ),
@@ -966,7 +966,7 @@ with tab2:
             lat=df_cat['Latitud'].tolist(),
             lon=df_cat['Longitud'].tolist(),
             mode='markers',
-            marker=go.scattermapbox.Marker(
+            marker=dict(  # CAMBIO: usar dict en lugar de go.scattermapbox.Marker
                 size=10,
                 color=color_map[categoria]
             ),
@@ -1038,8 +1038,6 @@ with tab2:
     )
 
     st.plotly_chart(fig_trazabilidad, use_container_width=True)
-
-    # ... resto del código para la tabla de conexiones ...
 
     st.subheader("📊 Tabla de Conexiones")
 
